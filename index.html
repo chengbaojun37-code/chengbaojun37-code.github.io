@@ -382,6 +382,9 @@
     <div class="tab" data-tab="summary"><span id="tab-summary">实时库存总表</span></div>
     <div class="tab" data-tab="inbound"><span id="tab-inbound">入库管理</span></div>
     <div class="tab" data-tab="outbound"><span id="tab-outbound">出库管理</span></div>
+    <div class="tab" data-tab="month-outbound"><span id="tab-month-outbound">月出库</span></div>
+    <div class="tab" data-tab="quarter-outbound"><span id="tab-quarter-outbound">季度出库</span></div>
+    <div class="tab" data-tab="year-outbound"><span id="tab-year-outbound">年出库</span></div>
     <div class="tab" data-tab="log"><span id="tab-log">操作日志</span></div>
 </div>
 
@@ -655,6 +658,63 @@
         </table>
         </div>
     </div>
+
+    <!-- ==================== 月出库页 ==================== -->
+    <div id="page-month-outbound" class="page">
+        <h3 id="month-outbound-title">月出库</h3>
+        <div class="summary-table-wrap">
+            <table class="table">
+                <thead><tr>
+                    <th id="th-month-out-date">时间</th>
+                    <th id="th-month-out-operator">操作员</th>
+                    <th id="th-month-out-name">物料名称</th>
+                    <th id="th-month-out-spec">规格</th>
+                    <th id="th-month-out-qty">出库数量</th>
+                    <th id="th-month-out-note">备注</th>
+                </tr></thead>
+                <tbody id="month-outbound-tbody"></tbody>
+            </table>
+            <div class="no-data" id="month-outbound-empty" style="display:none;text-align:center;padding:40px;color:#888;">暂无数据</div>
+        </div>
+    </div>
+
+    <!-- ==================== 季度出库页 ==================== -->
+    <div id="page-quarter-outbound" class="page">
+        <h3 id="quarter-outbound-title">季度出库</h3>
+        <div class="summary-table-wrap">
+            <table class="table">
+                <thead><tr>
+                    <th id="th-quarter-out-date">时间</th>
+                    <th id="th-quarter-out-operator">操作员</th>
+                    <th id="th-quarter-out-name">物料名称</th>
+                    <th id="th-quarter-out-spec">规格</th>
+                    <th id="th-quarter-out-qty">出库数量</th>
+                    <th id="th-quarter-out-note">备注</th>
+                </tr></thead>
+                <tbody id="quarter-outbound-tbody"></tbody>
+            </table>
+            <div class="no-data" id="quarter-outbound-empty" style="display:none;text-align:center;padding:40px;color:#888;">暂无数据</div>
+        </div>
+    </div>
+
+    <!-- ==================== 年出库页 ==================== -->
+    <div id="page-year-outbound" class="page">
+        <h3 id="year-outbound-title">年出库</h3>
+        <div class="summary-table-wrap">
+            <table class="table">
+                <thead><tr>
+                    <th id="th-year-out-date">时间</th>
+                    <th id="th-year-out-operator">操作员</th>
+                    <th id="th-year-out-name">物料名称</th>
+                    <th id="th-year-out-spec">规格</th>
+                    <th id="th-year-out-qty">出库数量</th>
+                    <th id="th-year-out-note">备注</th>
+                </tr></thead>
+                <tbody id="year-outbound-tbody"></tbody>
+            </table>
+            <div class="no-data" id="year-outbound-empty" style="display:none;text-align:center;padding:40px;color:#888;">暂无数据</div>
+        </div>
+    </div>
 </div>
 </div>
 <!-- ===== 密码验证弹窗 ===== -->
@@ -766,6 +826,10 @@ const translations = {
         thDateOut: '日期', thCodeOut: '物料编号', thNameOut: '物料名称', thQuantityOut: '数量',
         thDepartment: '领用部门', thOperatorOut: '操作人',
         inboundHistory: '入库记录', outboundHistory: '出库记录',
+        tabMonthOutbound: '月出库', tabQuarterOutbound: '季度出库', tabYearOutbound: '年出库',
+        monthOutboundTitle: '月出库', quarterOutboundTitle: '季度出库', yearOutboundTitle: '年出库',
+        thMonthOutDate: '时间', thMonthOutOperator: '操作员', thMonthOutName: '物料名称', thMonthOutSpec: '规格', thMonthOutQty: '出库数量', thMonthOutNote: '备注',
+        monthOutboundEmpty: '暂无数据', quarterOutboundEmpty: '暂无数据', yearOutboundEmpty: '暂无数据',
         alertSuccessIn: '入库成功！', alertSuccessOut: '出库成功！',
         alertErrorLowStock: '库存不足，无法出库！', alertErrorNotFound: '物料不存在！',
         confirmInbound: '确认入库？', confirmOutbound: '确认出库？', unit: '个', noData: '暂无数据',
@@ -846,6 +910,10 @@ const translations = {
         thDateOut: 'Дата', thCodeOut: 'Код', thNameOut: 'Наименование', thQuantityOut: 'Количество',
         thDepartment: 'Отдел', thOperatorOut: 'Оператор',
         inboundHistory: 'История приемки', outboundHistory: 'История отгрузки',
+        tabMonthOutbound: 'Расход за месяц', tabQuarterOutbound: 'Расход за квартал', tabYearOutbound: 'Расход за год',
+        monthOutboundTitle: 'Расход за месяц', quarterOutboundTitle: 'Расход за квартал', yearOutboundTitle: 'Расход за год',
+        thMonthOutDate: 'Дата', thMonthOutOperator: 'Оператор', thMonthOutName: 'Наименование', thMonthOutSpec: 'Спецификация', thMonthOutQty: 'Количество', thMonthOutNote: 'Примечание',
+        monthOutboundEmpty: 'Нет данных', quarterOutboundEmpty: 'Нет данных', yearOutboundEmpty: 'Нет данных',
         alertSuccessIn: 'Приемка успешна!', alertSuccessOut: 'Отгрузка успешна!',
         alertErrorLowStock: 'Недостаточно запасов!', alertErrorNotFound: 'Материал не найден!',
         confirmInbound: 'Подтвердить приемку?', confirmOutbound: 'Подтвердить отгрузку?', unit: 'ед.', noData: 'Нет данных',
@@ -1468,6 +1536,11 @@ function switchLanguage(lang) {
 
     const ids = {
         'header-title':'headerTitle','tab-inventory':'tabInventory','tab-summary':'tabSummary','tab-inbound':'tabInbound','tab-outbound':'tabOutbound','tab-log':'tabLog',
+        'tab-month-outbound':'tabMonthOutbound','tab-quarter-outbound':'tabQuarterOutbound','tab-year-outbound':'tabYearOutbound',
+        'month-outbound-title':'monthOutboundTitle','quarter-outbound-title':'quarterOutboundTitle','year-outbound-title':'yearOutboundTitle',
+        'th-month-out-date':'thMonthOutDate','th-month-out-operator':'thMonthOutOperator','th-month-out-name':'thMonthOutName','th-month-out-spec':'thMonthOutSpec','th-month-out-qty':'thMonthOutQty','th-month-out-note':'thMonthOutNote',
+        'th-quarter-out-date':'thMonthOutDate','th-quarter-out-operator':'thMonthOutOperator','th-quarter-out-name':'thMonthOutName','th-quarter-out-spec':'thMonthOutSpec','th-quarter-out-qty':'thMonthOutQty','th-quarter-out-note':'thMonthOutNote',
+        'th-year-out-date':'thMonthOutDate','th-year-out-operator':'thMonthOutOperator','th-year-out-name':'thMonthOutName','th-year-out-spec':'thMonthOutSpec','th-year-out-qty':'thMonthOutQty','th-year-out-note':'thMonthOutNote',
         'stat-total-label':'statTotal','stat-low-label':'statLow','stat-expiring-label':'statExpiring','stat-expired-label':'statExpired',
         'stat-month-out-label':'statMonthOut','stat-quarter-out-label':'statQuarterOut','stat-year-out-label':'statYearOut',
         'filter-warning-label':'filterWarning','btn-filter-low':'btnFilterLow','btn-filter-expiring':'btnFilterExpiring',
@@ -1485,6 +1558,7 @@ function switchLanguage(lang) {
         'th-date-out':'thDateOut','th-code-out':'thCodeOut','th-name-out':'thNameOut','th-quantity-out':'thQuantityOut',
         'th-department':'thDepartment','th-operator-out':'thOperatorOut',
         'inbound-history-title':'inboundHistory','outbound-history-title':'outboundHistory',
+        'month-outbound-empty':'monthOutboundEmpty','quarter-outbound-empty':'quarterOutboundEmpty','year-outbound-empty':'yearOutboundEmpty',
         'btn-export-csv':'exportCSV','btn-export-excel':'exportExcel','btn-export-json':'exportJSON','btn-import-json':'importJSON',
         'btn-insert-new-item':'btnInsertNewItem',
         'sth-code':'sthCode','sth-name':'sthName','sth-spec':'sthSpec','sth-source':'sthSource','sth-unit':'sthUnit',
@@ -1536,6 +1610,7 @@ function switchLanguage(lang) {
     renderInventory();
     renderSummary();
     renderHistoryTables();
+    renderPeriodOutbound();
     renderLog();
 }
 
@@ -1571,6 +1646,69 @@ function renderHistoryTables() {
     });
 }
 
+function renderPeriodOutbound() {
+    var t = translations[currentLang];
+    var now = new Date();
+    var thisYear = now.getFullYear();
+    var thisMonth = now.getMonth() + 1;
+    var quarterStartMonth = Math.floor((thisMonth - 1) / 3) * 3 + 1;
+
+    function inMonth(rec) {
+        var d = new Date(rec.date);
+        return d.getFullYear() === thisYear && (d.getMonth() + 1) === thisMonth;
+    }
+    function inQuarter(rec) {
+        var d = new Date(rec.date);
+        var m = d.getMonth() + 1;
+        return d.getFullYear() === thisYear && m >= quarterStartMonth && m <= quarterStartMonth + 2;
+    }
+    function inYear(rec) {
+        var d = new Date(rec.date);
+        return d.getFullYear() === thisYear;
+    }
+
+    var specMap = {};
+    for (var i = 0; i < inventory.length; i++) {
+        specMap[inventory[i].code] = inventory[i].spec || '-';
+    }
+
+    function getNote(rec) {
+        for (var i = operationLogs.length - 1; i >= 0; i--) {
+            var log = operationLogs[i];
+            if (log.code === rec.code && log.type === (currentLang === 'zh' ? '出库' : 'Отгрузка') &&
+                log.time && log.time.indexOf(rec.date.substring(0, 10)) !== -1 &&
+                log.qtyChange === '-' + rec.quantity) {
+                return log.note || '-';
+            }
+        }
+        return '-';
+    }
+
+    function renderOne(prefix, filterFn) {
+        var tbody = document.getElementById(prefix + '-tbody');
+        var emptyDiv = document.getElementById(prefix + '-empty');
+        var filtered = outboundHistory.filter(filterFn);
+        tbody.innerHTML = '';
+        if (filtered.length === 0) {
+            emptyDiv.style.display = 'block';
+            return;
+        }
+        emptyDiv.style.display = 'none';
+        for (var i = 0; i < filtered.length; i++) {
+            var rec = filtered[i];
+            var spec = specMap[rec.code] || '-';
+            var note = getNote(rec);
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + rec.date + '</td><td>' + rec.operator + '</td><td>' + rec.name + '</td><td>' + spec + '</td><td>' + rec.quantity + '</td><td>' + note + '</td>';
+            tbody.appendChild(tr);
+        }
+    }
+
+    renderOne('month-outbound', inMonth);
+    renderOne('quarter-outbound', inQuarter);
+    renderOne('year-outbound', inYear);
+}
+
 function showAlert(type, message, page) {
     const alertDiv = document.getElementById(page+'-alert');
     if (!alertDiv) return;
@@ -1584,6 +1722,7 @@ function refreshAll() {
     renderInventory();
     renderSummary();
     renderHistoryTables();
+    renderPeriodOutbound();
     renderLog();
 }
 
@@ -5692,6 +5831,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('page-'+target).classList.add('active');
             if (target === 'summary') renderSummary();
             if (target === 'log') renderLog();
+            if (target === 'month-outbound' || target === 'quarter-outbound' || target === 'year-outbound') renderPeriodOutbound();
         });
     });
 
