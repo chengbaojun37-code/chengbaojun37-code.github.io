@@ -403,6 +403,9 @@
             <div class="stat-card"><h3 id="stat-low-label">库存不足</h3><div class="number" id="stat-low">0</div></div>
             <div class="stat-card"><h3 id="stat-expiring-label">即将过期</h3><div class="number" id="stat-expiring">0</div></div>
             <div class="stat-card"><h3 id="stat-expired-label">已过期</h3><div class="number" id="stat-expired">0</div></div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #11998e, #38ef7d);"><h3 id="stat-month-out-label">本月出库</h3><div class="number" id="stat-month-out">0</div></div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #f12711, #f5af19);"><h3 id="stat-quarter-out-label">本季度出库</h3><div class="number" id="stat-quarter-out">0</div></div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #1e3c72, #2a5298);"><h3 id="stat-year-out-label">本年出库</h3><div class="number" id="stat-year-out">0</div></div>
         </div>
         <div class="filters">
             <div class="filter-group">
@@ -745,7 +748,7 @@ const translations = {
         headerTitle: '仓库出入库管理系统', tabInventory: '库存总览', tabSummary: '实时库存总表',
         tabInbound: '入库管理', tabOutbound: '出库管理', tabLog: '操作日志',
         loginTitle: '登录', loginPasswordLabel: '密码', loginDesc: '请输入管理员密码，或直接进入游客模式', loginPasswordPlaceholder: '请输入密码...', btnLogin: '登录', btnGuest: '游客进入', statusAdmin: '管理员', statusGuest: '访客', btnLogout: '退出登录', btnLoginStatus: '登录', loginErrorWrong: '密码错误，请重试！', loginErrorEmpty: '请输入密码',
-        statTotal: '总物料数', statLow: '库存不足', statExpiring: '即将过期', statExpired: '已过期',
+        statTotal: '总物料数', statLow: '库存不足', statExpiring: '即将过期', statExpired: '已过期', statMonthOut: '本月出库', statQuarterOut: '本季度出库', statYearOut: '本年出库',
         filterWarning: '仅显示预警物料', btnFilterLow: '仅显示库存不足', btnFilterExpiring: '仅显示保质期预警',
         sortLabel: '排序：', sortNone: '无', sortStock: '按库存状态', sortExpire: '按保质期状态',
         labelCode: '物料编号', labelName: '物料名称', labelSpec: '规格', labelStock: '当前库存',
@@ -825,7 +828,7 @@ const translations = {
         headerTitle: 'Система управления складом',
         loginTitle: 'Вход', loginPasswordLabel: 'Пароль', loginDesc: 'Введите пароль администратора или войдите как гость', loginPasswordPlaceholder: 'Введите пароль...', btnLogin: 'Войти', btnGuest: 'Гость', statusAdmin: 'Администратор', statusGuest: 'Гость', btnLogout: 'Выйти', btnLoginStatus: 'Войти', loginErrorWrong: 'Неверный пароль!', loginErrorEmpty: 'Введите пароль', tabInventory: 'Обзор запасов', tabSummary: 'Сводная таблица',
         tabInbound: 'Приемка', tabOutbound: 'Отгрузка', tabLog: 'Журнал операций',
-        statTotal: 'Всего материалов', statLow: 'Нехватка', statExpiring: 'Скоро истечет', statExpired: 'Просрочено',
+        statTotal: 'Всего материалов', statLow: 'Нехватка', statExpiring: 'Скоро истечет', statExpired: 'Просрочено', statMonthOut: 'Расход за месяц', statQuarterOut: 'Расход за квартал', statYearOut: 'Расход за год',
         filterWarning: 'Показать только предупреждения', btnFilterLow: 'Только нехватка', btnFilterExpiring: 'Только срок годности',
         sortLabel: 'Сортировка:', sortNone: 'Нет', sortStock: 'По статусу запасов', sortExpire: 'По сроку годности',
         labelCode: 'Код материала', labelName: 'Наименование', labelSpec: 'Спецификация', labelStock: 'Текущий запас',
@@ -1055,6 +1058,32 @@ function updateStats() {
     document.getElementById('stat-low').textContent = low;
     document.getElementById('stat-expiring').textContent = expiring;
     document.getElementById('stat-expired').textContent = expired;
+
+    // 月/季度/年出库统计
+    var now = new Date();
+    var thisYear = now.getFullYear();
+    var thisMonth = now.getMonth() + 1;
+    var thisQuarter = Math.ceil(thisMonth / 3);
+
+    var monthOut = 0, quarterOut = 0, yearOut = 0;
+    for (var i = 0; i < outboundHistory.length; i++) {
+        var rec = outboundHistory[i];
+        var t = rec.time || '';
+        if (t.length >= 10) {
+            var parts = t.substring(0, 10).split('-');
+            var rYear = parseInt(parts[0]), rMonth = parseInt(parts[1]);
+            var rQuarter = Math.ceil(rMonth / 3);
+            var qty = rec.totalQuantity || 0;
+            if (rYear === thisYear) {
+                yearOut += qty;
+                if (rMonth === thisMonth) monthOut += qty;
+                if (rQuarter === thisQuarter) quarterOut += qty;
+            }
+        }
+    }
+    document.getElementById('stat-month-out').textContent = monthOut;
+    document.getElementById('stat-quarter-out').textContent = quarterOut;
+    document.getElementById('stat-year-out').textContent = yearOut;
 }
 
 // ========== 库存总览卡片渲染 ==========
@@ -1440,6 +1469,7 @@ function switchLanguage(lang) {
     const ids = {
         'header-title':'headerTitle','tab-inventory':'tabInventory','tab-summary':'tabSummary','tab-inbound':'tabInbound','tab-outbound':'tabOutbound','tab-log':'tabLog',
         'stat-total-label':'statTotal','stat-low-label':'statLow','stat-expiring-label':'statExpiring','stat-expired-label':'statExpired',
+        'stat-month-out-label':'statMonthOut','stat-quarter-out-label':'statQuarterOut','stat-year-out-label':'statYearOut',
         'filter-warning-label':'filterWarning','btn-filter-low':'btnFilterLow','btn-filter-expiring':'btnFilterExpiring',
         'sort-label':'sortLabel','sort-none':'sortNone','sort-stock':'sortStock','sort-expire':'sortExpire',
         'label-inbound-code':'labelInboundCode','label-inbound-name':'labelInboundName','label-inbound-spec':'labelInboundSpec',
