@@ -3117,15 +3117,12 @@ function updateSyncStatus(state) {
 function saveToGist() {
     if (_gistLoading) return;
     updateSyncStatus('syncing');
-    var data = {
-        inventory: inventory,
-        inboundHistory: inboundHistory,
-        outboundHistory: outboundHistory,
-        operationLogs: operationLogs,
-        dataVersion: dataVersion,
-        presetVersion: PRESET_VERSION,
-        warehousePassword: warehousePassword
-    };
+    // 遍历 localStorage 所有 key，上传完整快照（而非仅 warehouse-data 内部字段）
+    var data = {};
+    for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        data[key] = localStorage.getItem(key);
+    }
     var body = {
         files: {}
     };
@@ -3160,21 +3157,52 @@ function loadFromGist() {
             return res.json();
         })
         .then(function(data) {
-            if (!data || !data.inventory || data.inventory.length === 0) return false;
+            if (!data) return false;
             _gistLoading = true;
-            inventory = data.inventory || [];
-            inboundHistory = data.inboundHistory || [];
-            outboundHistory = data.outboundHistory || [];
-            operationLogs = data.operationLogs || [];
-            dataVersion = data.dataVersion || 0;
-            if (data.warehousePassword) warehousePassword = data.warehousePassword;
-            for (var gi = 0; gi < inventory.length; gi++) {
-                if (!inventory[gi].source) inventory[gi].source = 'cn';
+
+            // 检测格式：旧格式顶层有 inventory 字段；新格式是 {'warehouse-data':'...', ...}
+            var isOldFormat = data.inventory && Array.isArray(data.inventory) && data.inventory.length > 0;
+
+            if (isOldFormat) {
+                // 旧格式：直接赋值全局变量 → saveAllData 写 localStorage → 触发新格式上传
+                inventory = data.inventory || [];
+                inboundHistory = data.inboundHistory || [];
+                outboundHistory = data.outboundHistory || [];
+                operationLogs = data.operationLogs || [];
+                dataVersion = data.dataVersion || 0;
+                if (data.warehousePassword) warehousePassword = data.warehousePassword;
+                for (var gi = 0; gi < inventory.length; gi++) {
+                    if (!inventory[gi].source) inventory[gi].source = 'cn';
+                }
+                saveAllData(); // 写入 localStorage（_gistLoading=true 会阻止重复上传）
+                _gistLoading = false;
+                saveToGist(); // 以新格式（完整 localStorage 快照）重新上传
+                updateSyncStatus('synced');
+                return true;
             }
-            saveAllData();
+
+            // 新格式：完整 localStorage 快照
+            var hasWarehouseData = false;
+            for (var key in data) {
+                if (data.hasOwnProperty(key)) {
+                    localStorage.setItem(key, data[key]);
+                    if (key === 'warehouse-data') hasWarehouseData = true;
+                }
+            }
+            if (!hasWarehouseData) {
+                _gistLoading = false;
+                updateSyncStatus('failed');
+                return false;
+            }
+            // 从 localStorage 还原全局变量
+            var loaded = loadAllData();
             _gistLoading = false;
-            updateSyncStatus('synced');
-            return true;
+            if (loaded) {
+                updateSyncStatus('synced');
+            } else {
+                updateSyncStatus('failed');
+            }
+            return loaded;
         })
         .catch(function(err) {
             console.warn('Gist load error:', err);
