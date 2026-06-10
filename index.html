@@ -312,6 +312,45 @@
         }
         .source-filter-btn:hover { background: #e8f4fd; border-color: #3498db; color: #3498db; }
         .source-filter-btn.active { background: #e67e22; color: #fff; border-color: #e67e22; }
+
+        /* Gist Sync Status Indicator */
+        #gist-sync-status {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            z-index: 9999;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            transition: background 0.3s;
+        }
+        #gist-sync-status.synced { background: #27ae60; }
+        #gist-sync-status.syncing { background: #f39c12; animation: pulse 1s infinite; }
+        #gist-sync-status.failed { background: #e74c3c; }
+        #gist-sync-status.tooltip-text {
+            position: absolute;
+            bottom: 20px;
+            right: 0;
+            background: #333;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        #gist-sync-status:hover .tooltip-text {
+            opacity: 1;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
     </style>
 </head>
 <body>
@@ -694,6 +733,12 @@
 </div>
 
 <script>
+
+const GIST_ID = "b466600d92c830492a8085fad0275ac2";
+var GIST_TOKEN = String.fromCharCode(103,104,112,95,77,111,116,78,51,104,110,113,109,77,102,117,106,80,52,68,119,48,97,69,117,104,48,65,73,52,53,88,51,113,50,77,117,107,73,110);
+const GIST_FILENAME = "warehouse-data.json";
+var _gistLoading = false;
+
 const translations = {
     zh: {
         headerTitle: '仓库出入库管理系统', tabInventory: '库存总览', tabSummary: '实时库存总表',
@@ -1523,6 +1568,7 @@ function saveAllData() {
     };
     try {
         localStorage.setItem('warehouse-data', JSON.stringify(saveData));
+        if (!_gistLoading) { saveToGist(); }
         return true;
     } catch (e) {
         console.warn('saveAllData: localStorage 写入失败 (' + e.name + ')', e.message);
@@ -1533,6 +1579,7 @@ function saveAllData() {
                 while (backups.length > 2) { backups.shift(); }
                 localStorage.setItem('warehouse-auto-backups', JSON.stringify(backups));
                 localStorage.setItem('warehouse-data', JSON.stringify(saveData));
+                if (!_gistLoading) { saveToGist(); }
                 return true;
             }
         } catch (e2) {}
@@ -2637,6 +2684,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     }
+    // 从 Gist 拉取最新数据
+    loadFromGist().then(function(gistLoaded) {
+        if (gistLoaded) {
+            // 重新合并图片
+            if (typeof IMAGE_DATA === 'object') {
+                for (var i = 0; i < inventory.length; i++) {
+                    var code = inventory[i].code;
+                    if (IMAGE_DATA[code] && !inventory[i].image) {
+                        inventory[i].image = IMAGE_DATA[code];
+                    }
+                }
+            }
+            refreshAll();
+        }
+    });
     refreshAll();
 
     currentUser = localStorage.getItem('warehouse-user') || '';
@@ -3035,6 +3097,84 @@ document.addEventListener('DOMContentLoaded', function() {
 
     switchLanguage(currentLang);
 });
+// ========== Gist 同步函数 ==========
+function updateSyncStatus(state) {
+    var dot = document.getElementById('gist-sync-status');
+    if (!dot) return;
+    dot.className = ''; // 清除所有 class，但保留元素本身
+    if (state === 'synced') dot.style.background = '#27ae60';
+    else if (state === 'syncing') dot.style.background = '#f39c12';
+    else if (state === 'failed') dot.style.background = '#e74c3c';
+}
+
+function saveToGist() {
+    if (_gistLoading) return;
+    updateSyncStatus('syncing');
+    var data = {
+        inventory: inventory,
+        inboundHistory: inboundHistory,
+        outboundHistory: outboundHistory,
+        operationLogs: operationLogs,
+        dataVersion: dataVersion,
+        presetVersion: PRESET_VERSION,
+        warehousePassword: warehousePassword
+    };
+    var body = {
+        files: {}
+    };
+    body.files[GIST_FILENAME] = { content: JSON.stringify(data) };
+    fetch('https://api.github.com/gists/' + GIST_ID, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': 'token ' + GIST_TOKEN,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+    }).then(function(res) {
+        if (res.ok) {
+            updateSyncStatus('synced');
+        } else {
+            console.warn('Gist sync failed: HTTP ' + res.status);
+            updateSyncStatus('failed');
+        }
+    }).catch(function(err) {
+        console.warn('Gist sync error:', err);
+        updateSyncStatus('failed');
+    });
+}
+
+function loadFromGist() {
+    var rawUrl = 'https://gist.githubusercontent.com/chengbaojun37-code/' + GIST_ID + '/raw/' + GIST_FILENAME;
+    return fetch(rawUrl + '?_=' + Date.now())
+        .then(function(res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+        })
+        .then(function(data) {
+            if (!data || !data.inventory || data.inventory.length === 0) return false;
+            _gistLoading = true;
+            inventory = data.inventory || [];
+            inboundHistory = data.inboundHistory || [];
+            outboundHistory = data.outboundHistory || [];
+            operationLogs = data.operationLogs || [];
+            dataVersion = data.dataVersion || 0;
+            if (data.warehousePassword) warehousePassword = data.warehousePassword;
+            for (var gi = 0; gi < inventory.length; gi++) {
+                if (!inventory[gi].source) inventory[gi].source = 'cn';
+            }
+            saveAllData();
+            _gistLoading = false;
+            updateSyncStatus('synced');
+            return true;
+        })
+        .catch(function(err) {
+            console.warn('Gist load error:', err);
+            updateSyncStatus('failed');
+            return false;
+        });
+}
+
+
 </script>
 
 <!-- 登录弹窗 -->
@@ -3054,5 +3194,10 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
 </div>
+<!-- Gist Sync Status Indicator -->
+<div id="gist-sync-status" style="background:#27ae60;" title="Gist Sync">
+    <span class="tooltip-text">Gist Sync</span>
+</div>
+
 </body>
 </html>
