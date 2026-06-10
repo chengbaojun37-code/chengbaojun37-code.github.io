@@ -329,6 +329,7 @@
         #gist-sync-status.synced { background: #27ae60; }
         #gist-sync-status.syncing { background: #f39c12; animation: pulse 1s infinite; }
         #gist-sync-status.failed { background: #e74c3c; }
+        #gist-sync-status.pending { background: #e67e22; }
         #gist-sync-status.tooltip-text {
             position: absolute;
             bottom: 20px;
@@ -2698,7 +2699,12 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             refreshAll();
         }
+        if (localStorage.getItem('gist-pending-sync') === 'true') {
+            updateSyncStatus('pending');
+        }
+        trySyncPending();
     });
+    window.addEventListener('online', trySyncPending);
     refreshAll();
 
     currentUser = localStorage.getItem('warehouse-user') || '';
@@ -3104,6 +3110,7 @@ function updateSyncStatus(state) {
     dot.className = ''; // 清除所有 class，但保留元素本身
     if (state === 'synced') dot.style.background = '#27ae60';
     else if (state === 'syncing') dot.style.background = '#f39c12';
+    else if (state === 'pending') dot.style.background = '#e67e22';
     else if (state === 'failed') dot.style.background = '#e74c3c';
 }
 
@@ -3132,6 +3139,7 @@ function saveToGist() {
         body: JSON.stringify(body)
     }).then(function(res) {
         if (res.ok) {
+            localStorage.removeItem('gist-pending-sync');
             updateSyncStatus('synced');
         } else {
             console.warn('Gist sync failed: HTTP ' + res.status);
@@ -3139,7 +3147,8 @@ function saveToGist() {
         }
     }).catch(function(err) {
         console.warn('Gist sync error:', err);
-        updateSyncStatus('failed');
+        localStorage.setItem('gist-pending-sync', 'true');
+        updateSyncStatus('pending');
     });
 }
 
@@ -3172,6 +3181,12 @@ function loadFromGist() {
             updateSyncStatus('failed');
             return false;
         });
+}
+
+function trySyncPending() {
+    if (localStorage.getItem('gist-pending-sync') === 'true') {
+        saveToGist();
+    }
 }
 
 
