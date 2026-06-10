@@ -1893,7 +1893,9 @@ function performAutoBackup() {
 const PRESET_VERSION = '20260609_source';
 
 function loadAllData() {
-    const raw = localStorage.getItem('warehouse-data');
+    var raw = localStorage.getItem('warehouse-data');
+    // fallback: 兼容 Gist 中可能使用 warehouse-records 键名的情况
+    if (!raw) raw = localStorage.getItem('warehouse-records');
     if (raw) {
         try {
             const data = JSON.parse(raw);
