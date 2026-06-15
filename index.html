@@ -2675,7 +2675,7 @@ function renderInventory() {
 
     if (summaryStatusFilter !== 'all') {
 
-        const now = new Date();
+        const now = new Date(); now.setHours(0,0,0,0);
 
         filtered = filtered.filter(function(item) {
 
