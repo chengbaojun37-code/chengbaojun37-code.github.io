@@ -1497,73 +1497,8 @@ function exportToExcel() {
         html += '<tr>' + [item.code,item.name,item.spec,item.unit||t.unit,item.safeStock,item.initialStock||0,item._cumIn||0,item._cumOut||0,item.stock,t['status'+ss.charAt(0).toUpperCase()+ss.slice(1)],getShelfDays(item.expireDate),item.prodDate||'',item.expireDate||'',t['status'+es.charAt(0).toUpperCase()+es.slice(1)]].map(function(v) { return '<td>'+v+'</td>'; }).join('')+'</tr>';
     });
     html += '</table>';
-<!-- ===== 门店管理弹窗 ===== -->
-<div class="modal-overlay" id="store-modal">
-    <div class="modal">
-        <h3 id="store-modal-title">新增门店</h3>
-        <input type="hidden" id="store-id-input">
-        <div class="form-row">
-            <div class="form-group"><label id="label-store-name">门店名称</label><input type="text" id="store-name-input"></div>
-            <div class="form-group"><label id="label-store-manager">店长姓名</label><input type="text" id="store-manager-input"></div>
-        </div>
-        <div class="form-row">
-            <div class="form-group"><label id="label-store-phone">电话</label><input type="text" id="store-phone-input"></div>
-        </div>
-        <div class="form-group"><label id="label-store-address">地址</label><input type="text" id="store-address-input"></div>
-        <div class="modal-buttons">
-            <button class="btn btn-primary" id="btn-store-save">保存</button>
-            <button class="btn btn-outline modal-close-btn" id="btn-store-cancel">取消</button>
-        </div>
-    </div>
-</div>
 
-<!-- ===== 创建订货单弹窗 ===== -->
-<div class="modal-overlay" id="create-order-modal">
-    <div class="modal">
-        <h3 id="create-order-modal-title">创建订货单</h3>
-        <div class="form-group">
-            <label id="label-order-store">所属门店</label>
-            <select id="create-order-store-select"></select>
-        </div>
-        <div class="form-group">
-            <label id="label-order-items">选择物料（点击添加）</label>
-            <div class="item-select-list" id="item-select-list"></div>
-        </div>
-        <div class="form-group">
-            <label>已选物料</label>
-            <div id="create-order-cart" style="border:2px solid #ecf0f1;border-radius:8px;padding:10px;min-height:50px;"></div>
-        </div>
-        <div class="form-group">
-            <label id="label-order-remark">备注</label>
-            <textarea id="create-order-remark" rows="2"></textarea>
-        </div>
-        <div class="modal-buttons">
-            <button class="btn btn-primary" id="btn-submit-order">提交订单</button>
-            <button class="btn btn-outline modal-close-btn" id="btn-cancel-create-order">取消</button>
-        </div>
-    </div>
-</div>
-
-<!-- ===== 物流信息弹窗 ===== -->
-<div class="modal-overlay" id="logistics-modal">
-    <div class="modal">
-        <h3 id="logistics-modal-title">填写物流信息</h3>
-        <div class="form-row">
-            <div class="form-group"><label id="label-logistics-company">物流公司</label><input type="text" id="logistics-company"></div>
-            <div class="form-group"><label id="label-logistics-plate">车牌号</label><input type="text" id="logistics-plate"></div>
-        </div>
-        <div class="form-row">
-            <div class="form-group"><label id="label-logistics-driver">司机</label><input type="text" id="logistics-driver"></div>
-            <div class="form-group"><label id="label-logistics-eta">预计送达时间</label><input type="datetime-local" id="logistics-eta"></div>
-        </div>
-        <div class="modal-buttons">
-            <button class="btn btn-primary" id="btn-logistics-save">确认发货</button>
-            <button class="btn btn-outline modal-close-btn" id="btn-logistics-cancel">取消</button>
-        </div>
-    </div>
-</div>
-
-</body></html>';;
+    html += '</body></html>';
     downloadFile(html, '实时库存总表.xls', 'application/vnd.ms-excel');
 }
 
@@ -7174,7 +7109,73 @@ function trySyncPending() {
 }
 
 
-</script>
+</script><!-- ===== 门店管理弹窗 ===== -->
+<div class="modal-overlay" id="store-modal">
+    <div class="modal">
+        <h3 id="store-modal-title">新增门店</h3>
+        <input type="hidden" id="store-id-input">
+        <div class="form-row">
+            <div class="form-group"><label id="label-store-name">门店名称</label><input type="text" id="store-name-input"></div>
+            <div class="form-group"><label id="label-store-manager">店长姓名</label><input type="text" id="store-manager-input"></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label id="label-store-phone">电话</label><input type="text" id="store-phone-input"></div>
+        </div>
+        <div class="form-group"><label id="label-store-address">地址</label><input type="text" id="store-address-input"></div>
+        <div class="modal-buttons">
+            <button class="btn btn-primary" id="btn-store-save">保存</button>
+            <button class="btn btn-outline modal-close-btn" id="btn-store-cancel">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== 创建订货单弹窗 ===== -->
+<div class="modal-overlay" id="create-order-modal">
+    <div class="modal">
+        <h3 id="create-order-modal-title">创建订货单</h3>
+        <div class="form-group">
+            <label id="label-order-store">所属门店</label>
+            <select id="create-order-store-select"></select>
+        </div>
+        <div class="form-group">
+            <label id="label-order-items">选择物料（点击添加）</label>
+            <div class="item-select-list" id="item-select-list"></div>
+        </div>
+        <div class="form-group">
+            <label>已选物料</label>
+            <div id="create-order-cart" style="border:2px solid #ecf0f1;border-radius:8px;padding:10px;min-height:50px;"></div>
+        </div>
+        <div class="form-group">
+            <label id="label-order-remark">备注</label>
+            <textarea id="create-order-remark" rows="2"></textarea>
+        </div>
+        <div class="modal-buttons">
+            <button class="btn btn-primary" id="btn-submit-order">提交订单</button>
+            <button class="btn btn-outline modal-close-btn" id="btn-cancel-create-order">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== 物流信息弹窗 ===== -->
+<div class="modal-overlay" id="logistics-modal">
+    <div class="modal">
+        <h3 id="logistics-modal-title">填写物流信息</h3>
+        <div class="form-row">
+            <div class="form-group"><label id="label-logistics-company">物流公司</label><input type="text" id="logistics-company"></div>
+            <div class="form-group"><label id="label-logistics-plate">车牌号</label><input type="text" id="logistics-plate"></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label id="label-logistics-driver">司机</label><input type="text" id="logistics-driver"></div>
+            <div class="form-group"><label id="label-logistics-eta">预计送达时间</label><input type="datetime-local" id="logistics-eta"></div>
+        </div>
+        <div class="modal-buttons">
+            <button class="btn btn-primary" id="btn-logistics-save">确认发货</button>
+            <button class="btn btn-outline modal-close-btn" id="btn-logistics-cancel">取消</button>
+        </div>
+    </div>
+</div>
+
+
 
 <!-- 登录弹窗 -->
 <div class="login-modal-overlay hidden" id="login-modal-overlay">
