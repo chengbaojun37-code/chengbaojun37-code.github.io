@@ -7148,6 +7148,17 @@ function loadFromGist() {
                 updateSyncStatus('failed');
                 return false;
             }
+            // 强制对齐 presetVersion：Gist CDN 缓存可能返回旧版本号，导致 loadAllData 校验失败
+            (function(){
+                var wdRaw = localStorage.getItem('warehouse-data');
+                if (wdRaw) {
+                    try {
+                        var wdObj = JSON.parse(wdRaw);
+                        wdObj.presetVersion = PRESET_VERSION;
+                        localStorage.setItem('warehouse-data', JSON.stringify(wdObj));
+                    } catch(e) {}
+                }
+            })();
             // 从 localStorage 还原全局变量
             var loaded = loadAllData();
             _gistLoading = false;
