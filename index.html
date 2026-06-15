@@ -6633,25 +6633,12 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     }
-    // 从 Gist 拉取最新数据
-    loadFromGist().then(function(gistLoaded) {
-        if (gistLoaded) {
-            // 重新合并图片
-            if (typeof IMAGE_DATA === 'object') {
-                for (var i = 0; i < inventory.length; i++) {
-                    var code = inventory[i].code;
-                    if (IMAGE_DATA[code] && !inventory[i].image) {
-                        inventory[i].image = IMAGE_DATA[code];
-                    }
-                }
-            }
-            refreshAll();
-        }
-        if (localStorage.getItem('gist-pending-sync') === 'true') {
-            updateSyncStatus('pending');
-        }
-        trySyncPending();
-    });
+    // 从 Gist 拉取最新数据（仅在从云端恢复时手动触发，避免 CDN 缓存导致数据回退）
+    // loadFromGist 保留供"从云端恢复"按钮调用
+    if (localStorage.getItem('gist-pending-sync') === 'true') {
+        updateSyncStatus('pending');
+    }
+    trySyncPending();
     window.addEventListener('online', trySyncPending);
     refreshAll();
 
