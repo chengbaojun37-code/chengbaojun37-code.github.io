@@ -2676,13 +2676,13 @@ function renderInventory() {
 
         filtered = filtered.filter(function(item) {
 
-            if (summaryStatusFilter === 'low') return item.currentStock < item.safetyStock;
+            if (summaryStatusFilter === 'low') return item.stock < item.safeStock;
 
             if (summaryStatusFilter === 'expiring') {
 
-                if (item.currentStock <= 0) return false;
+                if (item.stock <= 0) return false;
 
-                const exp = new Date(item.expiryDate);
+                const exp = new Date(item.expireDate);
 
                 const days = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
 
@@ -2692,9 +2692,9 @@ function renderInventory() {
 
             if (summaryStatusFilter === 'expired') {
 
-                if (item.currentStock <= 0) return false;
+                if (item.stock <= 0) return false;
 
-                const exp = new Date(item.expiryDate);
+                const exp = new Date(item.expireDate);
 
                 const days = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
 
