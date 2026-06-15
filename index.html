@@ -2933,7 +2933,11 @@ function loadAllData() {
     if (raw) {
         try {
             const data = JSON.parse(raw);
-            if (data.presetVersion !== PRESET_VERSION) return false;
+            // 版本迁移：旧版本数据自动升级，不丢弃
+            if (data.presetVersion !== PRESET_VERSION) {
+                data.presetVersion = PRESET_VERSION;
+                try { localStorage.setItem('warehouse-data', JSON.stringify(data)); } catch(e) {}
+            }
             inventory = data.inventory || [];
             inboundHistory = data.inboundHistory || [];
             outboundHistory = data.outboundHistory || [];
