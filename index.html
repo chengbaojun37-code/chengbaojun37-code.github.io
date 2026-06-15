@@ -793,6 +793,12 @@
         .item-select-row .item-info { flex: 1; font-size: 13px; }
 
         .item-select-row .item-stock { font-size: 12px; color: #7f8c8d; }
+        .item-cat-bar { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+        .item-cat-btn { padding: 3px 10px; border: 1px solid #bdc3c7; border-radius: 14px; background: #fff; cursor: pointer; font-size: 12px; color: #555; transition: all 0.2s; }
+        .item-cat-btn:hover { border-color: #3498db; color: #3498db; }
+        .item-cat-btn.active { background: #3498db; color: #fff; border-color: #3498db; }
+        .item-search-input { width: 100%; padding: 6px 8px; border: 1px solid #bdc3c7; border-radius: var(--border-radius); font-size: 13px; margin-bottom: 6px; outline: none; }
+        .item-search-input:focus { border-color: #3498db; }
 
         .cart-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #ecf0f1; font-size: 13px; }
 
@@ -2076,7 +2082,7 @@ tabStores: '门店管理', tabOrders: '订货管理',
 
         btnAddItem: '添加', btnRemoveItem: '删除', btnSubmitOrder: '提交订单', btnCancelOrder: '取消',
 
-        noStoreSelected: '请选择门店', noItemsSelected: '请添加至少一个物料', orderCreated: '订货单已创建',
+        searchMaterial: '输入编号或名称搜索物料...', stockLabel: '库存', noStoreSelected: '请选择门店', noItemsSelected: '请添加至少一个物料', orderCreated: '订货单已创建',
 
         btnApprove: '审核通过', btnReject: '取消订单', btnAccept: '接单备货', btnShip: '发货', btnSign: '签收',
 
@@ -2302,7 +2308,7 @@ tabStores: 'Управление магазинами', tabOrders: 'Управл
 
         btnAddItem: 'Добавить', btnRemoveItem: 'Удалить', btnSubmitOrder: 'Отправить', btnCancelOrder: 'Отмена',
 
-        noStoreSelected: 'Выберите магазин', noItemsSelected: 'Добавьте материалы', orderCreated: 'Заказ создан',
+        searchMaterial: 'Поиск по коду или названию...', stockLabel: 'На складе', noStoreSelected: 'Выберите магазин', noItemsSelected: 'Добавьте материалы', orderCreated: 'Заказ создан',
 
         btnApprove: 'Одобрить', btnReject: 'Отменить', btnAccept: 'Принять', btnShip: 'Отправить', btnSign: 'Подписать',
 
@@ -4369,79 +4375,93 @@ function renderOrders() {
 function showCreateOrderModal() {
 
     var t = translations[currentLang];
-
     var role = currentOrderRole;
-
     document.getElementById('create-order-modal-title').textContent = t.createOrderTitle;
 
-
-
     // Populate store select
-
     var storeSelect = document.getElementById('create-order-store-select');
-
     storeSelect.innerHTML = '';
-
     for (var i = 0; i < stores.length; i++) {
-
         if (stores[i].status !== 'active') continue;
-
         var opt = document.createElement('option');
-
         opt.value = stores[i].id;
-
         opt.textContent = stores[i].name;
-
         storeSelect.appendChild(opt);
-
     }
 
+    // Reset filters
+    window._orderCatFilter = 'all';
+    window._orderSearch = '';
+    document.getElementById('item-search-input').value = '';
 
+    // Translate category buttons
+    var catBtns = document.querySelectorAll('#item-cat-bar .item-cat-btn');
+    var catMap = { all: t.catAll, SB: t.catEquipment, PJ: t.catParts, BC: t.catPackaging, SC: t.catFood, ZC: t.catSelfPurchase };
+    for (var b = 0; b < catBtns.length; b++) {
+        var btn = catBtns[b];
+        var catKey = btn.getAttribute('data-cat');
+        if (catMap[catKey]) btn.textContent = catMap[catKey];
+    }
+    // Update search placeholder
+    document.getElementById('item-search-input').placeholder = t.searchMaterial || '输入编号或名称搜索物料...';
 
     // Populate item list
-
     renderItemSelectList();
 
-
-
     // Clear form
-
     document.getElementById('create-order-remark').value = '';
-
     document.getElementById('create-order-cart').innerHTML = '';
-
     window._orderCart = [];
-
     document.getElementById('create-order-modal').classList.add('show');
-
 }
 
 
 
-function renderItemSelectList() {
+function renderItemSelectList(catFilter, search) {
+
+    catFilter = catFilter || window._orderCatFilter || 'all';
+    search = search !== undefined ? search : (window._orderSearch || '');
+    window._orderCatFilter = catFilter;
+    window._orderSearch = search;
 
     var container = document.getElementById('item-select-list');
-
     var html = '';
+    var t = translations[currentLang];
+    var searchLower = search.toLowerCase();
 
     for (var i = 0; i < inventory.length; i++) {
-
         var inv = inventory[i];
+        // Category filter: code prefix (SB/PJ/BC/SC/ZC) or 'all'
+        if (catFilter !== 'all') {
+            var prefix = inv.code.substring(0, 2);
+            if (prefix !== catFilter) continue;
+        }
+        // Search filter: match code or name
+        if (search) {
+            var matchCode = inv.code.toLowerCase().indexOf(searchLower) !== -1;
+            var matchName = inv.name.toLowerCase().indexOf(searchLower) !== -1;
+            if (!matchCode && !matchName) continue;
+        }
 
         var selected = window._orderCart && window._orderCart.some(function(c) { return c.code === inv.code; });
-
         html += '<div class="item-select-row' + (selected ? ' selected' : '') + '" onclick="toggleOrderItem(\'' + inv.code + '\')" data-code="' + inv.code + '">'
-
             + '<div class="item-info">' + escHtml(inv.code) + ' ' + escHtml(inv.name) + ' ' + escHtml(inv.spec || '') + ' (' + escHtml(inv.unit || '') + ')</div>'
-
-            + '<div class="item-stock">库存: ' + inv.stock + '</div>'
-
+            + '<div class="item-stock">' + (t.stockLabel || '库存') + ': ' + inv.stock + '</div>'
             + '</div>';
-
     }
 
-    container.innerHTML = html || '<div style="padding:8px;color:#888;">暂无物料</div>';
+    container.innerHTML = html || '<div style="padding:8px;color:#888;">' + (t.noMaterial || '暂无物料') + '</div>';
 
+    // Update cat button active states
+    var btns = document.querySelectorAll('#item-cat-bar .item-cat-btn');
+    for (var b = 0; b < btns.length; b++) {
+        var btn = btns[b];
+        if (btn.getAttribute('data-cat') === catFilter) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    }
 }
 
 
@@ -5009,6 +5029,26 @@ function bindOrderFilters() {
     document.getElementById('btn-create-order').addEventListener('click', showCreateOrderModal);
 
     document.getElementById('btn-refresh-orders').addEventListener('click', renderOrders);
+
+    // Category filter buttons in order modal
+    document.getElementById('item-cat-bar').addEventListener('click', function(e) {
+        var btn = e.target.closest('.item-cat-btn');
+        if (!btn) return;
+        var cat = btn.getAttribute('data-cat');
+        window._orderCatFilter = cat;
+        renderItemSelectList(cat, window._orderSearch);
+    });
+
+    // Search input for material filtering (debounced)
+    var _orderSearchTimer = null;
+    document.getElementById('item-search-input').addEventListener('input', function() {
+        clearTimeout(_orderSearchTimer);
+        var self = this;
+        _orderSearchTimer = setTimeout(function() {
+            window._orderSearch = self.value;
+            renderItemSelectList(window._orderCatFilter, self.value);
+        }, 300);
+    });
 
 
 
@@ -14296,6 +14336,16 @@ function trySyncPending() {
         <div class="form-group">
 
             <label id="label-order-items">选择物料（点击添加）</label>
+
+            <div class="item-cat-bar" id="item-cat-bar">
+                <button class="item-cat-btn active" data-cat="all">全部</button>
+                <button class="item-cat-btn" data-cat="SB">设备</button>
+                <button class="item-cat-btn" data-cat="PJ">配件</button>
+                <button class="item-cat-btn" data-cat="BC">包材</button>
+                <button class="item-cat-btn" data-cat="SC">食材</button>
+                <button class="item-cat-btn" data-cat="ZC">自采</button>
+            </div>
+            <input type="text" class="item-search-input" id="item-search-input" placeholder="输入编号或名称搜索物料...">
 
             <div class="item-select-list" id="item-select-list"></div>
 
