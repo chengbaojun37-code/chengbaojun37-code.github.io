@@ -1496,7 +1496,7 @@ function exportToExcel() {
         const ss = getStockStatus(item), es = getExpireStatus(item.expireDate);
         html += '<tr>' + [item.code,item.name,item.spec,item.unit||t.unit,item.safeStock,item.initialStock||0,item._cumIn||0,item._cumOut||0,item.stock,t['status'+ss.charAt(0).toUpperCase()+ss.slice(1)],getShelfDays(item.expireDate),item.prodDate||'',item.expireDate||'',t['status'+es.charAt(0).toUpperCase()+es.slice(1)]].map(function(v) { return '<td>'+v+'</td>'; }).join('')+'</tr>';
     });
-    html += '</table>
+    html += '</table>';
 <!-- ===== 门店管理弹窗 ===== -->
 <div class="modal-overlay" id="store-modal">
     <div class="modal">
