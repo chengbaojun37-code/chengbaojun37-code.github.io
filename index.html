@@ -2675,35 +2675,13 @@ function renderInventory() {
 
     if (summaryStatusFilter !== 'all') {
 
-        const now = new Date(); now.setHours(0,0,0,0);
-
         filtered = filtered.filter(function(item) {
 
-            if (summaryStatusFilter === 'low') return item.stock < item.safeStock;
+            if (summaryStatusFilter === 'low') return getStockStatus(item) === 'low';
 
-            if (summaryStatusFilter === 'expiring') {
+            if (summaryStatusFilter === 'expiring') return getExpireStatus(item.expireDate) === 'expiring';
 
-                if (!item.expireDate) return false;
-
-                const exp = new Date(item.expireDate);
-
-                const days = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
-
-                return days >= 0 && days <= 30;
-
-            }
-
-            if (summaryStatusFilter === 'expired') {
-
-                if (!item.expireDate) return false;
-
-                const exp = new Date(item.expireDate);
-
-                const days = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
-
-                return days < 0;
-
-            }
+            if (summaryStatusFilter === 'expired') return getExpireStatus(item.expireDate) === 'expired';
 
             return true;
 
