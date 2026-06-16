@@ -813,6 +813,30 @@
 
         .cart-item .cart-remove { color: #e74c3c; cursor: pointer; font-weight: bold; }
 
+
+        /* 用户管理 */
+        .page-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+        .page-header-row h2 { margin: 0; }
+        .users-table-wrap { overflow-x: auto; }
+        .role-status.role-admin { background: #27ae60; }
+        .role-status.role-edit { background: #3498db; }
+        .role-status.role-view { background: #95a5a6; }
+        .role-status.role-download { background: #8e44ad; }
+        .role-status.role-order { background: #f39c12; }
+        .btn-edit-user, .btn-delete-user { padding: 4px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin: 0 3px; }
+        .btn-edit-user { background: #3498db; color: white; }
+        .btn-delete-user { background: #e74c3c; color: white; }
+        .btn-edit-user:hover { background: #2980b9; }
+        .btn-delete-user:hover { background: #c0392b; }
+        #user-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center; }
+        #user-modal-overlay.hidden { display: none; }
+        #user-modal-overlay .modal { background: white; border-radius: 12px; padding: 25px; width: 450px; max-width: 90vw; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+        #user-modal-overlay .modal-close { position: absolute; top: 10px; right: 15px; border: none; background: none; font-size: 22px; cursor: pointer; color: #999; }
+        #user-modal-overlay .modal { position: relative; }
+        #user-modal-overlay .form-group { margin-bottom: 15px; }
+        #user-modal-overlay .form-group label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px; }
+        #user-modal-overlay .form-group input, #user-modal-overlay .form-group select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        #user-modal-overlay .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
 </style>
 
 </style>
@@ -855,7 +879,7 @@
 
         </div>
 
-        <span class="role-status admin" id="role-status-display">管理员</span>
+        <strong id="current-user-name"></strong> <span class="role-status admin" id="role-status-display">管理员</span>
 
         <button class="btn-login-status" id="btn-login-status">退出登录</button>
 
@@ -884,6 +908,9 @@
     <div class="tab" data-tab="log"><span id="tab-log">操作日志</span></div>
 
 
+
+    <div class="tab admin-only" data-tab="users"><span id="tab-users">用户管理</span></div>
+    <div class="tab admin-only" data-tab="users_ru"><span id="tab-users_ru">Управление пользователями</span></div>
 
     <div class="tab admin-only" data-tab="stores"><span id="tab-stores">门店管理</span></div>
 
@@ -1675,6 +1702,59 @@
 
 
 
+    <!-- 用户管理页 -->
+    <div class="page" id="page-users">
+        <div class="page-header-row">
+            <h2 id="users-title">用户管理 / Управление пользователями</h2>
+            <button class="btn btn-primary" id="btn-add-user">+ 添加用户</button>
+        </div>
+        <div class="users-table-wrap">
+            <table class="data-table" id="users-table">
+                <thead><tr>
+                    <th id="th-username">用户名</th>
+                    <th id="th-displayname">显示名称</th>
+                    <th id="th-permission">权限</th>
+                    <th id="th-actions">操作</th>
+                </tr></thead>
+                <tbody id="users-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 添加/编辑用户弹窗 -->
+    <div class="modal-overlay hidden" id="user-modal-overlay">
+        <div class="modal">
+            <button class="modal-close" id="btn-user-modal-close">&times;</button>
+            <h3 id="user-modal-title">添加用户</h3>
+            <div class="form-group">
+                <label id="lbl-user-username">用户名</label>
+                <input type="text" id="input-user-username" placeholder="">
+            </div>
+            <div class="form-group">
+                <label id="lbl-user-password">密码</label>
+                <input type="password" id="input-user-password" placeholder="">
+            </div>
+            <div class="form-group">
+                <label id="lbl-user-displayname">显示名称</label>
+                <input type="text" id="input-user-displayname" placeholder="">
+            </div>
+            <div class="form-group">
+                <label id="lbl-user-permission">权限</label>
+                <select id="select-user-permission">
+                    <option value="admin">可管理 (admin)</option>
+                    <option value="edit">可编辑 (edit)</option>
+                    <option value="view">可查看 (view)</option>
+                    <option value="download">可下载 (download)</option>
+                    <option value="order">仅订货单 (order)</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-cancel" id="btn-user-cancel">取消</button>
+                <button class="btn btn-primary" id="btn-user-save">保存</button>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <!-- ===== 密码验证弹窗 ===== -->
@@ -2069,6 +2149,13 @@ tabStores: '门店管理', tabOrders: '订货管理',
 
         orderNotFound: '未找到订货单', storeDisabled: '该门店已停用',
 
+        permAdmin: '管理员',
+        permEdit: '可编辑',
+        permView: '可查看',
+        permDownload: '可下载',
+        permOrder: '仅订货单',
+        loginUsernameLabel: '用户名',
+        loginUsernamePlaceholder: '请输入用户名...',
         btnForceCancel: '强制取消',
 
     },
@@ -2291,7 +2378,14 @@ tabStores: 'Управление магазинами', tabOrders: 'Управл
 
         orderNotFound: 'Заказ не найден', storeDisabled: 'Магазин отключен',
 
-        btnForceCancel: 'Принуд. отмена',
+                permAdmin: 'Администратор',
+        permEdit: 'Редактирование',
+        permView: 'Просмотр',
+        permDownload: 'Скачивание',
+        permOrder: 'Только заказы',
+        loginUsernameLabel: 'Имя пользователя',
+        loginUsernamePlaceholder: 'Введите имя пользователя...',
+btnForceCancel: 'Принуд. отмена',
 
     }
 
@@ -2337,7 +2431,19 @@ let isEditing = false;
 
 let inventorySearchTerm = '';
 
-let isAdmin = sessionStorage.getItem('warehouse-is-admin') === 'true';
+// 多用户权限系统
+let users = JSON.parse(localStorage.getItem('warehouse-users') || '[{"username":"admin","password":"admin123","displayName":"\u7ba1\u7406\u5458","permission":"admin"}]');
+let currentUser = JSON.parse(sessionStorage.getItem('warehouse-current-user') || 'null');
+
+// 权限等级: order(1) < download(2) < view(3) < edit(4) < admin(5)
+function hasPermission(level) {
+    if (!currentUser) return false;
+    const hierarchy = { 'order': 1, 'download': 2, 'view': 3, 'edit': 4, 'admin': 5 };
+    return hierarchy[currentUser.permission] >= hierarchy[level];
+}
+
+// 兼容旧代码
+let isAdmin = currentUser && currentUser.permission === 'admin';
 
 let stores = [];
 
@@ -2356,35 +2462,24 @@ let editingOrderId = null;
 
 
 function updateRoleUI() {
-
     var t = translations[currentLang];
-
     var roleEl = document.getElementById('role-status-display');
-
+    var nameEl = document.getElementById('current-user-name');
     var btnEl = document.getElementById('btn-login-status');
-
-    if (isAdmin) {
-
-        roleEl.textContent = t.statusAdmin;
-
-        roleEl.className = 'role-status admin';
-
+    if (currentUser) {
+        var permLabels = { 'admin': t.permAdmin, 'edit': t.permEdit, 'view': t.permView, 'download': t.permDownload, 'order': t.permOrder };
+        roleEl.textContent = permLabels[currentUser.permission] || currentUser.permission;
+        roleEl.className = 'role-status role-' + currentUser.permission;
+        if (nameEl) nameEl.textContent = currentUser.displayName || currentUser.username;
         btnEl.textContent = t.btnLogout;
-
         document.body.classList.remove('guest-mode');
-
     } else {
-
         roleEl.textContent = t.statusGuest;
-
         roleEl.className = 'role-status guest';
-
+        if (nameEl) nameEl.textContent = '';
         btnEl.textContent = t.btnLoginStatus;
-
         document.body.classList.add('guest-mode');
-
     }
-
 }
 
 
@@ -2396,6 +2491,10 @@ function showLoginModal() {
     document.getElementById('login-modal-title').textContent = t.loginTitle;
 
     document.getElementById('login-modal-desc').textContent = t.loginDesc;
+
+    document.getElementById('login-username-label').textContent = t.loginUsernameLabel || '用户名';
+
+    document.getElementById('login-username-input').placeholder = t.loginUsernamePlaceholder || '请输入用户名...';
 
     document.getElementById('login-password-label').textContent = t.loginPasswordLabel;
 
@@ -2425,78 +2524,55 @@ function hideLoginModal() {
 
 
 
-function loginAsAdmin() {
-
-    var input = document.getElementById('login-password-input');
-
+function loginAsUser() {
+    var usernameInput = document.getElementById('login-username-input');
+    var passwordInput = document.getElementById('login-password-input');
     var t = translations[currentLang];
-
-    if (!input.value.trim()) {
-
-        document.getElementById('login-error').textContent = t.loginErrorEmpty;
-
+    if (!usernameInput.value.trim() || !passwordInput.value.trim()) {
+        document.getElementById('login-error').textContent = '请输入用户名和密码';
         document.getElementById('login-error').classList.add('show');
-
         return;
-
     }
-
-    if (input.value === warehousePassword) {
-
-        isAdmin = true;
-
-        sessionStorage.setItem('warehouse-is-admin', 'true');
-
+    var user = users.find(function(u) { return u.username === usernameInput.value.trim() && u.password === passwordInput.value; });
+    if (user) {
+        currentUser = user;
+        isAdmin = (user.permission === 'admin');
+        sessionStorage.setItem('warehouse-current-user', JSON.stringify(user));
+        sessionStorage.setItem('warehouse-is-admin', String(isAdmin));
         hideLoginModal();
-
         updateRoleUI();
-
+        refreshAdminUI();
     } else {
-
-        document.getElementById('login-error').textContent = t.loginErrorWrong;
-
+        document.getElementById('login-error').textContent = t.loginErrorWrong || '用户名或密码错误';
         document.getElementById('login-error').classList.add('show');
-
-        input.value = '';
-
-        input.focus();
-
     }
-
 }
 
 
 
 function loginAsGuest() {
-
+    currentUser = null;
     isAdmin = false;
-
+    sessionStorage.removeItem('warehouse-current-user');
     sessionStorage.setItem('warehouse-is-admin', 'false');
-
     hideLoginModal();
-
     updateRoleUI();
-
+    refreshAdminUI();
 }
 
 
 
 function toggleLoginState() {
-
-    if (isAdmin) {
-
+    if (currentUser) {
+        currentUser = null;
         isAdmin = false;
-
+        sessionStorage.removeItem('warehouse-current-user');
         sessionStorage.removeItem('warehouse-is-admin');
-
         updateRoleUI();
-
+        refreshAdminUI();
     } else {
-
         showLoginModal();
-
     }
-
 }
 
 
@@ -2732,7 +2808,7 @@ function renderInventory() {
 
                 '<div class="info-row"><span class="info-label">'+t.labelStock+'</span><span class="info-value">'+item.stock+' '+t.unit+'</span></div>'+
 
-                '<div class="info-row"><span class="info-label">'+t.labelSafeStock+'</span><span class="info-value safe-stock-val" data-code="'+item.code+'">'+item.safeStock+' '+t.unit+'</span>' + (isAdmin ? '<span class="safe-stock-edit-icon" data-code="'+item.code+'" title="'+t.safeStockEditTitle+'">&#9998;</span>' : '') + '</div>'+
+                '<div class="info-row"><span class="info-label">'+t.labelSafeStock+'</span><span class="info-value safe-stock-val" data-code="'+item.code+'">'+item.safeStock+' '+t.unit+'</span>' + (hasPermission('edit') ? '<span class="safe-stock-edit-icon" data-code="'+item.code+'" title="'+t.safeStockEditTitle+'">&#9998;</span>' : '') + '</div>'+
 
                 '<div class="info-row"><span class="info-label">'+t.labelSupplier+'</span><span class="info-value">'+item.supplier+'</span></div>'+
 
@@ -2903,7 +2979,7 @@ function renderSummary() {
 
             '<td class="'+expireCellClass+'">'+t['status'+es.charAt(0).toUpperCase()+es.slice(1)]+'</td>'+
 
-(isAdmin ? '<td><button class="btn-delete-row" onclick="deleteItem(\''+item.code+'\')" title="'+t.deleteConfirm+'">✕</button></td>' : '<td></td>');
+(hasPermission('admin') ? '<td><button class="btn-delete-row" onclick="deleteItem(\''+item.code+'\')" title="'+t.deleteConfirm+'">✕</button></td>' : '<td></td>');
 
         tbody.appendChild(tr);
 
@@ -3040,7 +3116,7 @@ function downloadFile(content, filename, mime) {
 
 // ========== 导入功能 ==========
 
-function handleImportFile(file) { if (!isAdmin) return; 
+function handleImportFile(file) { if (!hasPermission('edit')) return; 
 
     const t = translations[currentLang];
 
@@ -3290,7 +3366,7 @@ function renderLog() {
 
         tr.innerHTML = '<td>'+log.time+'</td><td>'+log.user+'</td><td>'+log.type+'</td><td>'+log.code+'</td><td>'+log.qtyChange+'</td><td>'+log.note+'</td>' +
 
-            (isAdmin ? '<td><button class="btn-delete-row admin-only" onclick="deleteLogEntry('+log._origIdx+')">✕</button></td>' : '<td></td>');
+            (hasPermission('admin') ? '<td><button class="btn-delete-row admin-only" onclick="deleteLogEntry('+log._origIdx+')">✕</button></td>' : '<td></td>');
 
         tbody.appendChild(tr);
 
@@ -3307,7 +3383,7 @@ function renderLog() {
 
 function deleteLogEntry(idx) {
 
-    if (!isAdmin) return;
+    if (!hasPermission('admin')) return;
 
     const t = translations[currentLang];
 
@@ -5601,7 +5677,7 @@ function handleInsertSubmit() {
 
 // ========== 删除物料 ==========
 
-function deleteItem(code) { if (!isAdmin) return; 
+function deleteItem(code) { if (!hasPermission('admin')) return; 
 
     const t = translations[currentLang];
 
@@ -12077,7 +12153,7 @@ function initSampleData() {
 
 // ========== 安全库存编辑 ==========
 
-function editSafeStockItem(code, newVal) { if (!isAdmin) return; 
+function editSafeStockItem(code, newVal) { if (!hasPermission('edit')) return; 
 
     const item = inventory.find(function(i) { return i.code === code; });
 
@@ -12107,7 +12183,7 @@ function editSafeStockItem(code, newVal) { if (!isAdmin) return;
 
 // ========== 期初库存编辑 ==========
 
-function editInitStockItem(code, newVal) { if (!isAdmin) return; 
+function editInitStockItem(code, newVal) { if (!hasPermission('edit')) return; 
 
     const item = inventory.find(function(i) { return i.code === code; });
 
@@ -12187,7 +12263,7 @@ function editCodeItem(code, newCode) {
 
 // ========== 物料名称编辑 ==========
 
-function editNameItem(code, newVal) { if (!isAdmin) return; 
+function editNameItem(code, newVal) { if (!hasPermission('edit')) return; 
 
     const item = inventory.find(function(i) { return i.code === code; });
 
@@ -12213,7 +12289,7 @@ function editNameItem(code, newVal) { if (!isAdmin) return;
 
 // ========== 规格型号编辑 ==========
 
-function editSpecItem(code, newVal) { if (!isAdmin) return; 
+function editSpecItem(code, newVal) { if (!hasPermission('edit')) return; 
 
     const item = inventory.find(function(i) { return i.code === code; });
 
@@ -12239,7 +12315,7 @@ function editSpecItem(code, newVal) { if (!isAdmin) return;
 
 // ========== 单位编辑 ==========
 
-function editUnitItem(code, newVal) { if (!isAdmin) return; 
+function editUnitItem(code, newVal) { if (!hasPermission('edit')) return; 
 
     const item = inventory.find(function(i) { return i.code === code; });
 
@@ -12267,7 +12343,7 @@ function editUnitItem(code, newVal) { if (!isAdmin) return;
 
 function editSourceItem(code, newSource) {
 
-    if (!isAdmin) return;
+    if (!hasPermission('edit')) return;
 
     const item = inventory.find(function(i) { return i.code === code; });
 
@@ -12371,7 +12447,7 @@ function editImageItem(code, base64Data) {
 
 // ========== 通用文本单元格编辑 ==========
 
-function startTextCellEdit(td, field, editFn) { if (!isAdmin) return; 
+function startTextCellEdit(td, field, editFn) { if (!hasPermission('edit')) return; 
 
     const code = td.dataset.code;
 
@@ -12475,7 +12551,7 @@ function startTextCellEdit(td, field, editFn) { if (!isAdmin) return;
 
 function startSourceCellEdit(td) {
 
-    if (!isAdmin) return;
+    if (!hasPermission('edit')) return;
 
     const code = td.dataset.code;
 
@@ -12545,7 +12621,7 @@ function startSourceCellEdit(td) {
 
 // ========== 图片单元格编辑 ==========
 
-function startImageCellEdit(td) { if (!isAdmin) return; 
+function startImageCellEdit(td) { if (!hasPermission('edit')) return; 
 
     const code = td.dataset.code;
 
@@ -12755,7 +12831,7 @@ function editExpDateItem(code, newVal) {
 
 // --- 保质期双击编辑入口 ---
 
-function startShelfLifeEdit(td) { if (!isAdmin) return; 
+function startShelfLifeEdit(td) { if (!hasPermission('edit')) return; 
 
     const code = td.dataset.code;
 
@@ -12815,7 +12891,7 @@ function startShelfLifeEdit(td) { if (!isAdmin) return;
 
 // --- 生产日期双击编辑入口 ---
 
-function startProdDateEdit(td) { if (!isAdmin) return; 
+function startProdDateEdit(td) { if (!hasPermission('edit')) return; 
 
     const code = td.dataset.code;
 
@@ -12873,7 +12949,7 @@ function startProdDateEdit(td) { if (!isAdmin) return;
 
 // --- 到期日期双击编辑入口 ---
 
-function startExpDateEdit(td) { if (!isAdmin) return; 
+function startExpDateEdit(td) { if (!hasPermission('edit')) return; 
 
     const code = td.dataset.code;
 
@@ -13015,7 +13091,7 @@ function startSafeStockCardEdit(iconEl) {
 
 function startSafeStockSummaryEdit(td) {
 
-    if (!isAdmin) return;
+    if (!hasPermission('edit')) return;
 
     const code = td.dataset.code;
 
@@ -13077,7 +13153,7 @@ function startSafeStockSummaryEdit(td) {
 
 function startInitStockSummaryEdit(td) {
 
-    if (!isAdmin) return;
+    if (!hasPermission('edit')) return;
 
     const code = td.dataset.code;
 
@@ -13190,9 +13266,21 @@ document.addEventListener('DOMContentLoaded', function() {
     
         // 登录弹窗事件绑定
     
-        document.getElementById('btn-login-submit').addEventListener('click', loginAsAdmin);
+        document.getElementById('btn-login-submit').addEventListener('click', loginAsUser);
     
         document.getElementById('btn-login-guest').addEventListener('click', loginAsGuest);
+
+        // 用户管理
+        document.getElementById('btn-add-user').addEventListener('click', function() { showUserModal(); });
+        document.getElementById('btn-user-save').addEventListener('click', saveUser);
+        document.getElementById('btn-user-cancel').addEventListener('click', function() { document.getElementById('user-modal-overlay').classList.add('hidden'); });
+        document.getElementById('btn-user-modal-close').addEventListener('click', function() { document.getElementById('user-modal-overlay').classList.add('hidden'); });
+        document.getElementById('users-tbody').addEventListener('click', function(e) {
+            var btn = e.target.closest('.btn-edit-user');
+            if (btn) { showUserModal(parseInt(btn.dataset.idx)); return; }
+            btn = e.target.closest('.btn-delete-user');
+            if (btn) { deleteUser(parseInt(btn.dataset.idx)); }
+        });
     
         document.getElementById('btn-login-close').addEventListener('click', function() { loginAsGuest(); });
     
@@ -13275,6 +13363,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (target === 'month-outbound' || target === 'quarter-outbound' || target === 'year-outbound') renderPeriodOutbound();
     
                 if (target === 'stores') renderStores();
+    
+                if (target === 'users') renderUsers();
     
                 if (target === 'orders') renderOrders();
     
@@ -13370,7 +13460,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('btn-import-json').addEventListener('click', function() {
     
-            if (!isAdmin) return;
+            if (!hasPermission('edit')) return;
     
             document.getElementById('import-file-input').click();
     
@@ -13378,7 +13468,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('import-file-input').addEventListener('change', function() {
     
-            if (!isAdmin || !this.files[0]) return;
+            if (!hasPermission('edit') || !this.files[0]) return;
     
             handleImportFile(this.files[0]);
     
@@ -13398,7 +13488,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('btn-log-refresh').addEventListener('click', renderLog);
     
-        document.getElementById('btn-clear-all').addEventListener('click', function() { if (!isAdmin) return; clearAllData(); });
+        document.getElementById('btn-clear-all').addEventListener('click', function() { if (!hasPermission('admin')) return; clearAllData(); });
     
     
     
@@ -13466,7 +13556,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('inventory-grid').addEventListener('click', function(e) {
     
-            if (!isAdmin) return;
+            if (!hasPermission('edit')) return;
     
             const icon = e.target.closest('.safe-stock-edit-icon');
     
@@ -13480,7 +13570,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.querySelector('#summary-table').addEventListener('dblclick', function(e) {
     
-            if (!isAdmin) return;
+            if (!hasPermission('edit')) return;
     
             var safeTd = e.target.closest('.td-safe-stock');
     
@@ -13556,7 +13646,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('inbound-image').addEventListener('change', function() {
     
-            if (!isAdmin) return;
+            if (!hasPermission('edit')) return;
     
             const file = this.files[0];
     
@@ -13580,7 +13670,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('inbound-form').addEventListener('submit', function(e) {
     
-            if (!isAdmin) { e.preventDefault(); return; }
+            if (!hasPermission('edit')) { e.preventDefault(); return; }
     
             e.preventDefault();
     
@@ -13730,7 +13820,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('outbound-form').addEventListener('submit', function(e) {
     
-            if (!isAdmin) { e.preventDefault(); return; }
+            if (!hasPermission('edit')) { e.preventDefault(); return; }
     
             e.preventDefault();
     
@@ -13784,13 +13874,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
         // 密码设置按钮
     
-        document.getElementById('btn-set-password').addEventListener('click', function() { if (!isAdmin) return; showSetPasswordModal(); });
+        document.getElementById('btn-set-password').addEventListener('click', function() { if (!hasPermission('admin')) return; showSetPasswordModal(); });
     
     
     
         // 插入新物料
     
-        document.getElementById('btn-insert-new-item').addEventListener('click', function() { if (!isAdmin) return; showInsertModal(); });
+        document.getElementById('btn-insert-new-item').addEventListener('click', function() { if (!hasPermission('edit')) return; showInsertModal(); });
     
         document.getElementById('btn-insert-cancel').addEventListener('click', closeInsertModal);
     
@@ -13798,7 +13888,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('insert-image').addEventListener('change', function() {
     
-            if (!isAdmin) return;
+            if (!hasPermission('edit')) return;
     
             const file = this.files[0];
     
@@ -13864,7 +13954,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('btn-save-system').addEventListener('click', function() {
     
-            if (!isAdmin) return;
+            if (!hasPermission('admin')) return;
     
             var t = translations[currentLang];
     
@@ -14002,6 +14092,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     continueInit();
+    refreshAdminUI();
 });
 
 // ========== Gist 同步函数 ==========
@@ -14256,6 +14347,75 @@ function trySyncPending() {
 
 
 
+
+function refreshAdminUI() {
+    // 刷新所有 admin-only 元素的显示状态
+    document.querySelectorAll('.admin-only').forEach(function(el) {
+        el.style.display = (currentUser && currentUser.permission === 'admin') ? '' : 'none';
+    });
+    // 刷新当前页面
+    var activeTab = document.querySelector('.tab.active');
+    if (activeTab) {
+        var tabName = activeTab.dataset.tab;
+        if (tabName === 'users') renderUsers();
+    }
+}
+
+function renderUsers() {
+    var tbody = document.getElementById('users-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    users.forEach(function(user, idx) {
+        var row = document.createElement('tr');
+        row.innerHTML = '<td>' + user.username + '</td><td>' + (user.displayName || '') + '</td><td>' + user.permission + '</td>' +
+            '<td><button class="btn-edit-user" data-idx="' + idx + '">编辑</button>' +
+            (user.username !== 'admin' ? '<button class="btn-delete-user" data-idx="' + idx + '">删除</button>' : '') + '</td>';
+        tbody.appendChild(row);
+    });
+}
+
+function showUserModal(idx) {
+    var isEdit = (idx !== undefined && idx !== null);
+    document.getElementById('user-modal-title').textContent = isEdit ? '编辑用户' : '添加用户';
+    document.getElementById('user-modal-overlay').classList.remove('hidden');
+    document.getElementById('input-user-username').value = isEdit ? users[idx].username : '';
+    document.getElementById('input-user-username').disabled = isEdit;
+    document.getElementById('input-user-password').value = '';
+    document.getElementById('input-user-displayname').value = isEdit ? (users[idx].displayName || '') : '';
+    document.getElementById('select-user-permission').value = isEdit ? users[idx].permission : 'view';
+    document.getElementById('btn-user-save').dataset.editIdx = isEdit ? idx : '';
+}
+
+function saveUser() {
+    var username = document.getElementById('input-user-username').value.trim();
+    var password = document.getElementById('input-user-password').value.trim();
+    var displayName = document.getElementById('input-user-displayname').value.trim();
+    var permission = document.getElementById('select-user-permission').value;
+    if (!username) { alert('请输入用户名'); return; }
+    var editIdx = document.getElementById('btn-user-save').dataset.editIdx;
+    if (editIdx !== '') {
+        var idx = parseInt(editIdx);
+        if (password) users[idx].password = password;
+        users[idx].displayName = displayName;
+        users[idx].permission = permission;
+    } else {
+        if (!password) { alert('请输入密码'); return; }
+        if (users.find(function(u) { return u.username === username; })) { alert('用户名已存在'); return; }
+        users.push({ username: username, password: password, displayName: displayName, permission: permission });
+    }
+    localStorage.setItem('warehouse-users', JSON.stringify(users));
+    document.getElementById('user-modal-overlay').classList.add('hidden');
+    renderUsers();
+}
+
+function deleteUser(idx) {
+    if (!confirm('确定删除该用户？')) return;
+    if (users[idx].username === 'admin') { alert('不能删除管理员账号'); return; }
+    users.splice(idx, 1);
+    localStorage.setItem('warehouse-users', JSON.stringify(users));
+    renderUsers();
+}
+
 </script><!-- ===== 门店管理弹窗 ===== -->
 
 <div class="modal-overlay" id="store-modal">
@@ -14405,34 +14565,23 @@ function trySyncPending() {
 <!-- 登录弹窗 -->
 
 <div class="login-modal-overlay hidden" id="login-modal-overlay">
-
     <div class="login-modal">
-
         <button class="login-modal-close" id="btn-login-close">&times;</button>
-
         <h2 id="login-modal-title">登录</h2>
-
-        <p id="login-modal-desc">请输入管理员密码，或直接进入游客模式</p>
-
+        <p id="login-modal-desc">请输入用户名和密码</p>
         <div class="login-modal-body">
-
-            <label for="login-password-input" id="login-password-label">密码</label>
-
+            <label for="login-username-input" id="login-username-label">用户名</label>
+            <input type="text" id="login-username-input" placeholder="请输入用户名...">
+            <label for="login-password-input" id="login-password-label" style="margin-top:12px;">密码</label>
             <input type="password" id="login-password-input" placeholder="请输入密码...">
-
             <div class="login-error" id="login-error"></div>
-
         </div>
-
         <div class="login-modal-footer">
-
-            <button class="btn-guest" id="btn-login-guest">游客进入</button>
-
+            <button class="btn-guest" id="btn-login-guest">访客查看</button>
             <button class="btn btn-primary" id="btn-login-submit">登录</button>
-
         </div>
-
     </div>
+</div>
 
 </div>
 
