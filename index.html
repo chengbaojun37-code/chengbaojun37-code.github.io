@@ -853,16 +853,6 @@
 
     <div class="header-right">
 
-        <div class="user-settings">
-
-            <input type="text" id="user-name-input" placeholder="输入姓名...">
-
-            <button class="btn-setuser" id="btn-set-user">设置</button>
-
-            <span class="user-current" id="current-user-display"></span>
-
-        </div>
-
         <div class="pwd-settings">
 
             <button class="btn-pwd admin-only" id="btn-set-password" title="设置清除数据密码">设置密码</button>
@@ -879,7 +869,7 @@
 
         </div>
 
-        <strong id="current-user-name"></strong> <span class="role-status admin" id="role-status-display">管理员</span>
+        <span class="user-current"><strong id="current-user-name"></strong> <span class="role-status guest" id="role-status-display">访客</span></span>
 
         <button class="btn-login-status" id="btn-login-status">退出登录</button>
 
@@ -2395,7 +2385,7 @@ btnForceCancel: 'Принуд. отмена',
 
 let currentLang = localStorage.getItem('warehouse-lang') || 'zh';
 
-let currentUser = localStorage.getItem('warehouse-user') || '';
+// REMOVED: old currentUser system
 
 let inventory = [];
 
@@ -3621,9 +3611,7 @@ function switchLanguage(lang) {
 
     document.getElementById('btn-clear-search').textContent = t.btnClearSearch;
 
-    document.getElementById('user-name-input').placeholder = t.userPlaceholder;
-
-    document.getElementById('btn-set-user').textContent = t.userSetBtn;
+    document.getElementById('login-username-input').placeholder = t.userPlaceholder;
 
     document.getElementById('log-filter-user').placeholder = t.logFilterUser;
 
@@ -3633,14 +3621,17 @@ function switchLanguage(lang) {
 
     document.getElementById('btn-save-system').textContent = t.btnSaveSystem;
 
-    const display = document.getElementById('current-user-display');
+    const display = document.getElementById('current-user-name');
 
     if (currentUser) {
 
-        display.textContent = t.currentUserPrefix + currentUser;
+        display.textContent = currentUser.username;
 
     } else {
 
+        display.textContent = t.guest;
+
+    }
         display.textContent = '';
 
     }
@@ -3664,28 +3655,6 @@ function switchLanguage(lang) {
 }
 
 
-
-function updateUserDisplay() {
-
-    const t = translations[currentLang];
-
-    const display = document.getElementById('current-user-display');
-
-    if (currentUser) {
-
-        display.textContent = t.currentUserPrefix + currentUser;
-
-    } else {
-
-        display.textContent = '';
-
-    }
-
-    document.getElementById('user-name-input').value = currentUser;
-
-    document.getElementById('inbound-operator').value = currentUser || (currentLang === 'zh' ? '当前用户' : 'Текущий');
-
-    updateRoleUI();
 
 }
 
@@ -13258,9 +13227,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     
     
-        currentUser = localStorage.getItem('warehouse-user') || '';
+        // REMOVED: old currentUser refresh
     
-        updateUserDisplay();
+        // REMOVED: updateUserDisplay call
     
     
     
@@ -13288,7 +13257,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
         document.getElementById('login-password-input').addEventListener('keydown', function(e) {
     
-            if (e.key === 'Enter') loginAsAdmin();
+            if (e.key === 'Enter') loginAsUser();
     
         });
     
@@ -13308,29 +13277,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     
     
-        document.getElementById('btn-set-user').addEventListener('click', function() {
+        
     
-            currentUser = document.getElementById('user-name-input').value.trim();
-    
-            localStorage.setItem('warehouse-user', currentUser);
-    
-            updateUserDisplay();
-    
-        });
-    
-        document.getElementById('user-name-input').addEventListener('keydown', function(e) {
-    
-            if (e.key === 'Enter') {
-    
-                currentUser = this.value.trim();
-    
-                localStorage.setItem('warehouse-user', currentUser);
-    
-                updateUserDisplay();
-    
-            }
-    
-        });
+
     
     
     
@@ -13994,7 +13943,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
             // 保留核心数据key列表
     
-            var coreKeys = ['warehouse-data', 'warehouse-lang', 'warehouse-user', 'warehousePassword'];
+            var coreKeys = ['warehouse-data', 'warehouse-lang', 'warehousePassword'];
     
             var coreData = {};
     
