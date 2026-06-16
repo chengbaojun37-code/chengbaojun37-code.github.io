@@ -2683,7 +2683,7 @@ function renderInventory() {
 
             if (summaryStatusFilter === 'expiring') {
 
-                if (item.stock <= 0) return false;
+                if (!item.expireDate) return false;
 
                 const exp = new Date(item.expireDate);
 
@@ -2695,7 +2695,7 @@ function renderInventory() {
 
             if (summaryStatusFilter === 'expired') {
 
-                if (item.stock <= 0) return false;
+                if (!item.expireDate) return false;
 
                 const exp = new Date(item.expireDate);
 
