@@ -6051,17 +6051,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 } catch(e) {}
             }
         }
-        // 始终显示强制云端恢复按钮（允许用户手动从 Gist 同步最新数据）
-        document.getElementById('btn-force-restore').style.display = 'block';
-        if (localStorage.getItem('gist-pending-sync') === 'true') {
-            updateSyncStatus('pending');
+        // 启动 Gist 自动轮询（每15秒）
+        if (!syncPollTimer) {
+            syncPollTimer = setInterval(pollGistSync, 15000);
         }
         _gistLoading = false;
         trySyncPending();
-        // 启动 Gist 自动轮询（每30秒）
-        if (!syncPollTimer) {
-            syncPollTimer = setInterval(pollGistSync, 30000);
-        }
         // 部门迁移完成后同步到 Gist
         if (window._migrationJustDone) {
             window._migrationJustDone = false;
@@ -6747,48 +6742,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // 强制云端恢复按钮：绕过版本比较，直接从 Gist raw URL 拉取并覆盖
-    document.getElementById('btn-force-restore').addEventListener('click', function() {
-        var btn = document.getElementById('btn-force-restore');
-        btn.textContent = currentLang === 'zh' ? '加载中...' : 'Загрузка...';
-        btn.disabled = true;
-        var rawUrl = 'https://gist.githubusercontent.com/chengbaojun37-code/' + GIST_ID + '/raw/' + GIST_FILENAME + '?_=' + Date.now();
-        fetch(rawUrl)
-            .then(function(res) {
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                return res.json();
-            })
-            .then(function(data) {
-                if (!data) throw new Error('Empty response');
-                // 直接逐 key 写入 localStorage
-                for (var key in data) {
-                    if (data.hasOwnProperty(key)) {
-                        localStorage.setItem(key, data[key]);
-                    }
-                }
-                // 从 Gist 提取 Token（用于后续保存）
-                if (data['_tk_a'] && data['_tk_b'] && data['_tk_c'] && !GIST_TOKEN) {
-                    GIST_TOKEN = data['_tk_a'] + data['_tk_b'] + data['_tk_c'];
-                }
-                // 从 localStorage 还原全局变量
-                var loaded = loadAllData();
-                if (loaded) {
-                    refreshAll();
-                    btn.style.display = 'none';
-                    document.getElementById('btn-restore-backup').style.display = 'none';
-                    updateSyncStatus('synced');
-                    showAlert('success', currentLang === 'zh' ? '已从云端恢复最新数据（版本 ' + dataVersion + '，' + inventory.length + ' 物料）' : 'Данные восстановлены из облака (версия ' + dataVersion + ', ' + inventory.length + ' материалов)', 'log');
-                } else {
-                    throw new Error('loadAllData failed');
-                }
-            })
-            .catch(function(err) {
-                console.error('Force restore error:', err);
-                btn.textContent = currentLang === 'zh' ? '强制云端恢复 / Принудительное восстановление' : 'Принудительное восстановление / 强制云端恢复';
-                btn.disabled = false;
-                showAlert('danger', currentLang === 'zh' ? '云端恢复失败：' + err.message + '。请检查网络连接。' : 'Ошибка восстановления: ' + err.message + '. Проверьте подключение к сети.', 'log');
-            });
-    });
 
     switchLanguage(currentLang);
 });
@@ -7010,8 +6963,7 @@ function pollGistSync() {
 </div>
 <!-- 从备份恢复按钮：Gist 无数据但本地有备份时显示 -->
 <button id="btn-restore-backup" style="display:none; position:fixed; bottom:20px; right:60px; z-index:9999; background:#e67e22; color:#fff; border:none; border-radius:4px; padding:8px 16px; cursor:pointer; font-size:14px;">从备份恢复 / Восстановить из резервной копии</button>
-<!-- 强制云端恢复按钮：Gist 加载失败时显示 -->
-<button id="btn-force-restore" style="display:none; position:fixed; bottom:60px; right:60px; z-index:9999; background:#e74c3c; color:#fff; border:none; border-radius:4px; padding:8px 16px; cursor:pointer; font-size:14px;">强制云端恢复 / Принудительное восстановление</button>
+
 <!-- Gist Sync Status Indicator -->
 <div id="gist-sync-status" style="background:#27ae60;" title="Gist Sync">
     <span class="tooltip-text">Gist Sync</span>
