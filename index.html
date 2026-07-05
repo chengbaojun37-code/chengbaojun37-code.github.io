@@ -367,6 +367,27 @@
             50% { opacity: 0.4; }
         }
 
+        /* 部门管理弹窗 */
+        .dept-manager-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000; justify-content:center; align-items:center; }
+        .dept-manager-overlay.show { display:flex; }
+        .dept-manager { background:white; border-radius:12px; width:420px; max-height:500px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.3); }
+        .dept-manager-header { padding:16px 20px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
+        .dept-manager-header h3 { margin:0; font-size:16px; }
+        .dept-manager-close { background:none; border:none; font-size:20px; cursor:pointer; color:#999; padding:0 4px; }
+        .dept-manager-close:hover { color:#333; }
+        .dept-manager-body { padding:10px 20px; max-height:350px; overflow-y:auto; }
+        .dept-item { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #f5f5f5; }
+        .dept-item:last-child { border-bottom:none; }
+        .dept-item-name { flex:1; font-size:14px; word-break:break-all; }
+        .dept-item-source { font-size:11px; color:#999; margin-left:8px; }
+        .dept-item-del { background:none; border:1px solid #e74c3c; color:#e74c3c; border-radius:4px; cursor:pointer; padding:4px 10px; font-size:12px; margin-left:12px; white-space:nowrap; }
+        .dept-item-del:hover { background:#e74c3c; color:white; }
+        .dept-item-del:disabled { border-color:#ccc; color:#ccc; cursor:not-allowed; }
+        .dept-item-del:disabled:hover { background:none; color:#ccc; }
+        .dept-manager-empty { text-align:center; color:#999; padding:30px 0; font-size:14px; }
+        .btn-manage-dept { background:none; border:1px solid #3498db; color:#3498db; border-radius:4px; cursor:pointer; padding:6px 12px; font-size:13px; vertical-align:middle; margin-left:6px; }
+        .btn-manage-dept:hover { background:#3498db; color:white; }
+
     </style>
 </head>
 <body>
@@ -596,6 +617,7 @@
                 <div class="form-group">
                     <label for="outbound-department" id="label-outbound-department">领用部门</label>
                     <input type="text" id="outbound-department" list="dept-list" autocomplete="off">
+                    <button type="button" class="btn-manage-dept" id="btn-manage-dept">管理</button>
                     <datalist id="dept-list"></datalist>
                 </div>
             </div>
@@ -1842,6 +1864,7 @@ function saveAllData() {
     try {
         localStorage.setItem('warehouse-data', JSON.stringify(saveData));
         if (!_gistLoading) { saveToGist(); }
+        else { localStorage.setItem('gist-pending-sync', 'true'); }
         return true;
     } catch (e) {
         console.warn('saveAllData: localStorage 写入失败 (' + e.name + ')', e.message);
@@ -1853,6 +1876,7 @@ function saveAllData() {
                 localStorage.setItem('warehouse-auto-backups', JSON.stringify(backups));
                 localStorage.setItem('warehouse-data', JSON.stringify(saveData));
                 if (!_gistLoading) { saveToGist(); }
+                else { localStorage.setItem('gist-pending-sync', 'true'); }
                 return true;
             }
         } catch (e2) {}
@@ -5874,20 +5898,23 @@ function startInitStockSummaryEdit(td) {
 // ========== 入库恢复工具函数 ==========
 function restoreDateInbound(year, month, day) {
     var summary = {};
+    var useDateFilter = (year != null && month != null && day != null);
     for (var i = 0; i < inboundHistory.length; i++) {
         var rec = inboundHistory[i];
         var d = rec.date || '';
-        var matched = false;
-        if (d.indexOf(year + '/' + month + '/' + day) !== -1) matched = true;
-        else if (d.indexOf(year + '-' + month + '-' + day) !== -1) matched = true;
-        else if (d.indexOf(month + '/' + day + '/' + year) !== -1) matched = true;
-        else {
-            try {
-                var parsed = new Date(d);
-                if (!isNaN(parsed.getTime()) && parsed.getFullYear() === year && (parsed.getMonth() + 1) === month && parsed.getDate() === day) {
-                    matched = true;
-                }
-            } catch(e) {}
+        var matched = !useDateFilter;
+        if (useDateFilter) {
+            if (d.indexOf(year + '/' + month + '/' + day) !== -1) matched = true;
+            else if (d.indexOf(year + '-' + month + '-' + day) !== -1) matched = true;
+            else if (d.indexOf(month + '/' + day + '/' + year) !== -1) matched = true;
+            else {
+                try {
+                    var parsed = new Date(d);
+                    if (!isNaN(parsed.getTime()) && parsed.getFullYear() === year && (parsed.getMonth() + 1) === month && parsed.getDate() === day) {
+                        matched = true;
+                    }
+                } catch(e) {}
+            }
         }
         if (matched) {
             var qty = Number(rec.quantity) || 0;
@@ -5896,53 +5923,69 @@ function restoreDateInbound(year, month, day) {
     }
     for (var j = 0; j < inventory.length; j++) {
         var code = inventory[j].code;
-        inventory[j]._cumIn = summary.hasOwnProperty(code) ? summary[code] : 0;
-        inventory[j].stock = inventory[j].initialStock + inventory[j]._cumIn - inventory[j]._cumOut;
+        if (summary.hasOwnProperty(code)) {
+            inventory[j]._cumIn = summary[code];
+            inventory[j].stock = inventory[j].initialStock + inventory[j]._cumIn - inventory[j]._cumOut;
+        }
     }
     return summary;
 }
 
 // ========== 领用部门管理（全局） ==========
-var PRESET_DEPARTMENTS = ['路西门店 / Люси','玛拉米拉门店 / Марамила','楚丁街门店 / Чудин','公园门店 / Парк'];
+var PRESET_DEPARTMENTS = [];
 
 function normalizeDepartment(dept) {
     if (!dept || !dept.trim()) return dept;
-    var d = dept.trim();
-
-    // 第一级：精确匹配
-    var map = {
-        '路西': '路西门店 / Люси',
-        '路西店': '路西门店 / Люси',
-        '路西门店': '路西门店 / Люси',
-        '玛拉米拉': '玛拉米拉门店 / Марамила',
-        '玛拉米拉门店': '玛拉米拉门店 / Марамила',
-        'Марамила': '玛拉米拉门店 / Марамила',
-        '楚丁街': '楚丁街门店 / Чудин',
-        '楚丁街门店': '楚丁街门店 / Чудин',
-        '公园': '公园门店 / Парк',
-        '公园门店': '公园门店 / Парк'
-    };
-    if (map.hasOwnProperty(d)) return map[d];
-
-    // 第二级：子串模糊匹配（indexOf，避免正则特殊字符问题）
-    if (d.indexOf('路西') !== -1) return '路西门店 / Люси';
-    if (d.indexOf('玛拉米拉') !== -1 || d.indexOf('Марамила') !== -1) return '玛拉米拉门店 / Марамила';
-    if (d.indexOf('楚丁街') !== -1 || d.indexOf('Чудин') !== -1) return '楚丁街门店 / Чудин';
-    if (d.indexOf('公园') !== -1 || d.indexOf('Парк') !== -1) return '公园门店 / Парк';
-
-    return d;
+    return dept.trim();
 }
 
 // 批量规范化已有出库历史中的部门名称（页面加载后执行）
+// 同时包含一次性部门名称迁移逻辑（migrated_dept_20260702）
+// 迁移仅在首次执行时标记并触发 Gist 同步；后续调用仍会扫描残留旧值以防被 Gist 回退
 function normalizeAllOutboundDepartments() {
-    if (!outboundHistory || !outboundHistory.length) return;
     var changed = false;
-    for (var i = 0; i < outboundHistory.length; i++) {
-        if (outboundHistory[i].department) {
-            var normalized = normalizeDepartment(outboundHistory[i].department);
-            if (normalized !== outboundHistory[i].department) {
-                outboundHistory[i].department = normalized;
+    var OLD_DEPT = '特维尔大街门店 / Тверская';
+    var NEW_DEPT = '特维尔鲁宾店Филиал в ТЦ «Рубин», Тверь';
+    var migrationDone = localStorage.getItem('migrated_dept_20260702') === '1';
+
+    // 迁移 outboundHistory（无论 flag 是否已设置，始终扫描防止 Gist 回退）
+    if (outboundHistory && outboundHistory.length) {
+        for (var i = 0; i < outboundHistory.length; i++) {
+            if (outboundHistory[i].department === OLD_DEPT) {
+                outboundHistory[i].department = NEW_DEPT;
                 changed = true;
+            }
+        }
+    }
+    // 迁移 warehouse_dept_list（始终扫描）
+    try {
+        var deptList = JSON.parse(localStorage.getItem('warehouse_dept_list') || '[]');
+        var deptChanged = false;
+        for (var j = 0; j < deptList.length; j++) {
+            if (deptList[j] === OLD_DEPT) {
+                deptList[j] = NEW_DEPT;
+                deptChanged = true;
+            }
+        }
+        if (deptChanged) {
+            localStorage.setItem('warehouse_dept_list', JSON.stringify(deptList));
+        }
+    } catch(e) {}
+
+    if (!migrationDone) {
+        localStorage.setItem('migrated_dept_20260702', '1');
+        window._migrationJustDone = true;
+    }
+
+    // 常规规范化：trim 空格
+    if (outboundHistory && outboundHistory.length) {
+        for (var i = 0; i < outboundHistory.length; i++) {
+            if (outboundHistory[i].department) {
+                var trimmed = outboundHistory[i].department.trim();
+                if (trimmed !== outboundHistory[i].department) {
+                    outboundHistory[i].department = trimmed;
+                    changed = true;
+                }
             }
         }
     }
@@ -5978,33 +6021,56 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
             }
-            // 从入库记录恢复6月29日累计入库
-            restoreDateInbound(2026, 6, 29);
+            // 从全部入库记录恢复累计入库
+            restoreDateInbound(null, null, null);
             normalizeAllOutboundDepartments();
             syncUnitBilingual();
             refreshAll();
         }
         // 无论 Gist 是否成功加载，只要有本地备份数据且无正式仓库数据，就显示恢复按钮
-        if (localStorage.getItem('warehouse-auto-backups') && !localStorage.getItem('warehouse-data')) {
-            document.getElementById('btn-restore-backup').style.display = 'block';
+        // 即使 warehouse-data 存在，也检查备份中是否有更新的版本（如 Gist 误覆盖后）
+        if (localStorage.getItem('warehouse-auto-backups')) {
+            var hasWarehouseData = !!localStorage.getItem('warehouse-data');
+            if (!hasWarehouseData) {
+                document.getElementById('btn-restore-backup').style.display = 'block';
+            } else {
+                try {
+                    var _ab = JSON.parse(localStorage.getItem('warehouse-auto-backups'));
+                    var _wd = JSON.parse(localStorage.getItem('warehouse-data'));
+                    if (_ab && _ab.length > 0) {
+                        var _latestBk = _ab[_ab.length - 1];
+                        var _bkVer = (_latestBk.data || _latestBk).dataVersion || 0;
+                        var _wdVer = (_wd && _wd.dataVersion) || 0;
+                        if (_bkVer > _wdVer) {
+                            document.getElementById('btn-restore-backup').style.display = 'block';
+                            document.getElementById('btn-restore-backup').title = (currentLang === 'zh'
+                                ? '检测到本地备份版本(' + _bkVer + ')高于当前数据版本(' + _wdVer + ')，建议恢复'
+                                : 'Обнаружена резервная копия (' + _bkVer + ') новее текущих данных (' + _wdVer + '), рекомендуется восстановить');
+                        }
+                    }
+                } catch(e) {}
+            }
         }
-        // Gist 加载失败时，显示强制云端恢复按钮
-        if (!gistLoaded) {
-            document.getElementById('btn-force-restore').style.display = 'block';
-        }
+        // 始终显示强制云端恢复按钮（允许用户手动从 Gist 同步最新数据）
+        document.getElementById('btn-force-restore').style.display = 'block';
         if (localStorage.getItem('gist-pending-sync') === 'true') {
             updateSyncStatus('pending');
         }
+        _gistLoading = false;
         trySyncPending();
         // 启动 Gist 自动轮询（每30秒）
         if (!syncPollTimer) {
             syncPollTimer = setInterval(pollGistSync, 30000);
         }
-        _gistLoading = false;
+        // 部门迁移完成后同步到 Gist
+        if (window._migrationJustDone) {
+            window._migrationJustDone = false;
+            saveToGist();
+        }
     });
     window.addEventListener('online', trySyncPending);
-    // 从入库记录恢复6月29日累计入库
-    restoreDateInbound(2026, 6, 29);
+    // 从全部入库记录恢复累计入库
+    restoreDateInbound(null, null, null);
     syncUnitBilingual();
     refreshAll();
 
@@ -6379,15 +6445,46 @@ document.addEventListener('DOMContentLoaded', function() {
 
     renderDeptDatalist();
 
+    // 绑定部门管理按钮事件（在闭包内绑定，避免内联 onclick 的 scoping 问题）
+    var btnManageDept = document.getElementById('btn-manage-dept');
+    if (btnManageDept) {
+        btnManageDept.addEventListener('click', showDeptManager);
+    }
+    // 关闭按钮
+    var btnCloseDeptMgr = document.getElementById('btn-close-dept-manager');
+    if (btnCloseDeptMgr) {
+        btnCloseDeptMgr.addEventListener('click', hideDeptManager);
+    }
+    // 点击遮罩关闭
+    var overlay = document.getElementById('dept-manager-overlay');
+    if (overlay) {
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) hideDeptManager();
+        });
+    }
+
     function getDepartmentList() {
         var customList = [];
+        var blacklist = [];
         try {
             customList = JSON.parse(localStorage.getItem('warehouse_dept_list') || '[]');
+            blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist') || '[]');
         } catch(e) {}
         var all = PRESET_DEPARTMENTS.slice();
         customList.forEach(function(d) {
             var nd = normalizeDepartment(d);
-            if (all.indexOf(nd) === -1) all.push(nd);
+            if (all.indexOf(nd) === -1 && blacklist.indexOf(nd) === -1) all.push(nd);
+        });
+        // 追加出库记录中已出现的部门名（按使用频次降序）
+        var deptFreq = {};
+        outboundHistory.forEach(function(r) {
+            var d = (r.department || '').trim();
+            if (d) deptFreq[d] = (deptFreq[d] || 0) + 1;
+        });
+        var sorted = Object.keys(deptFreq).sort(function(a, b) { return deptFreq[b] - deptFreq[a]; });
+        sorted.forEach(function(d) {
+            var nd = normalizeDepartment(d);
+            if (all.indexOf(nd) === -1 && blacklist.indexOf(nd) === -1) all.push(nd);
         });
         return all;
     }
@@ -6395,6 +6492,16 @@ document.addEventListener('DOMContentLoaded', function() {
     function saveCustomDepartment(dept) {
         if (!dept || !dept.trim()) return;
         dept = normalizeDepartment(dept.trim());
+        // 先从黑名单中移除（如果之前被删除过，手动输入即恢复）
+        var blacklist = [];
+        try {
+            blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist') || '[]');
+        } catch(e) {}
+        var bi = blacklist.indexOf(dept);
+        if (bi !== -1) {
+            blacklist.splice(bi, 1);
+            localStorage.setItem('warehouse_dept_blacklist', JSON.stringify(blacklist));
+        }
         var all = getDepartmentList();
         if (all.indexOf(dept) !== -1) return;
         var customList = [];
@@ -6420,8 +6527,70 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // 部门管理弹窗
+    function showDeptManager() {
+        var overlay = document.getElementById('dept-manager-overlay');
+        var body = document.getElementById('dept-manager-body');
+        var depts = getDepartmentList();
+        if (depts.length === 0) {
+            body.innerHTML = '<div class="dept-manager-empty">暂无部门 / Нет отделов</div>';
+        } else {
+            body.innerHTML = '';
+            depts.forEach(function(d) {
+                var div = document.createElement('div');
+                div.className = 'dept-item';
+                var nameSpan = document.createElement('span');
+                nameSpan.className = 'dept-item-name';
+                nameSpan.textContent = d;
+                var delBtn = document.createElement('button');
+                delBtn.className = 'dept-item-del';
+                delBtn.textContent = currentLang === 'zh' ? '删除' : 'Удалить';
+                delBtn.addEventListener('click', (function(dept) {
+                    return function() { removeDeptFromList(dept); };
+                })(d));
+                div.appendChild(nameSpan);
+                div.appendChild(delBtn);
+                body.appendChild(div);
+            });
+        }
+        overlay.classList.add('show');
+    }
+
+    function hideDeptManager() {
+        document.getElementById('dept-manager-overlay').classList.remove('show');
+    }
+
+    function removeDeptFromList(dept) {
+        // 从 warehouse_dept_list 中移除（如果存在）
+        var customList = [];
+        try {
+            customList = JSON.parse(localStorage.getItem('warehouse_dept_list') || '[]');
+        } catch(e) {}
+        var idx = customList.indexOf(dept);
+        if (idx !== -1) {
+            customList.splice(idx, 1);
+            localStorage.setItem('warehouse_dept_list', JSON.stringify(customList));
+        }
+        // 加入黑名单，阻止从 outboundHistory 或其他来源再次出现
+        var blacklist = [];
+        try {
+            blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist') || '[]');
+        } catch(e) {}
+        if (blacklist.indexOf(dept) === -1) {
+            blacklist.push(dept);
+            localStorage.setItem('warehouse_dept_blacklist', JSON.stringify(blacklist));
+        }
+        renderDeptDatalist();
+        showDeptManager(); // 刷新弹窗
+    }
+
     // 出库 - 实时匹配
     setupCodeAutofill('outbound-code', 'outbound-name', 'outbound-code-suggestions');
+
+    document.getElementById('outbound-department').addEventListener('blur', function() {
+        var val = this.value.trim();
+        if (val) saveCustomDepartment(val);
+    });
 
     document.getElementById('outbound-form').addEventListener('submit', function(e) {
         if (!isAdmin) { e.preventDefault(); return; }
@@ -6693,6 +6862,7 @@ function loadFromGist() {
                 var gistVersion = data.dataVersion || 0;
                 if (localVersion > 0 && localVersion >= gistVersion) {
                     _gistLoading = false;
+                    if (localVersion > gistVersion) { localStorage.setItem('gist-pending-sync', 'true'); }
                     updateSyncStatus('synced');
                     return true;
                 }
@@ -6714,15 +6884,35 @@ function loadFromGist() {
 
             // 新格式：完整 localStorage 快照，直接逐 key 写入
             // 版本比较：如果 Gist 中 warehouse-data 版本不高于本地，跳过该 key
+            // 例外：检测本地 outboundHistory 是否存在损坏的部门名，有则强制覆盖
             var gistWarehouseVersion = 0;
+            var gistOutboundDeparts = {};
             if (data['warehouse-data']) {
-                try { var gwd = JSON.parse(data['warehouse-data']); gistWarehouseVersion = gwd.dataVersion || 0; } catch(e) { gistWarehouseVersion = -1; }
+                try {
+                    var gwd = JSON.parse(data['warehouse-data']);
+                    gistWarehouseVersion = gwd.dataVersion || 0;
+                    (gwd.outboundHistory || []).forEach(function(r) {
+                        gistOutboundDeparts[r.department || ''] = 1;
+                    });
+                } catch(e) { gistWarehouseVersion = -1; }
+            }
+            var localOutboundCorrupted = false;
+            if (localVersion > 0 && localVersion === gistWarehouseVersion && Object.keys(gistOutboundDeparts).length > 0) {
+                var localWD = null;
+                try { localWD = JSON.parse(localRaw); } catch(e) {}
+                if (localWD && localWD.outboundHistory && localWD.outboundHistory.length > 0) {
+                    for (var _li = 0; _li < localWD.outboundHistory.length; _li++) {
+                        var ld = localWD.outboundHistory[_li].department || '';
+                        if (ld && !gistOutboundDeparts[ld]) { localOutboundCorrupted = true; break; }
+                    }
+                }
             }
             var hasWarehouseData = false;
             for (var key in data) {
                 if (data.hasOwnProperty(key)) {
-                    if (key === 'warehouse-data' && localVersion > 0 && localVersion >= gistWarehouseVersion) {
-                        hasWarehouseData = true;
+                    if ((key === 'warehouse-data' || key === 'warehouse-auto-backups') && localVersion > 0 && (localVersion > gistWarehouseVersion || (localVersion === gistWarehouseVersion && !localOutboundCorrupted))) {
+                        if (key === 'warehouse-data') hasWarehouseData = true;
+                        if (localVersion > gistWarehouseVersion) { localStorage.setItem('gist-pending-sync', 'true'); }
                         continue;
                     }
                     localStorage.setItem(key, data[key]);
@@ -6755,6 +6945,7 @@ function loadFromGist() {
         })
         .catch(function(err) {
             console.warn('Gist load error:', err);
+            _gistLoading = false;
             // Gist 拉取失败时：如果 localStorage 中已有数据，标记为已同步（本地数据更可靠）
             if (localStorage.getItem('warehouse-data')) {
                 updateSyncStatus('synced');
@@ -6783,8 +6974,8 @@ function pollGistSync() {
                     }
                 }
             }
-            // 从入库记录恢复6月29日累计入库
-            restoreDateInbound(2026, 6, 29);
+            // 从全部入库记录恢复累计入库
+            restoreDateInbound(null, null, null);
             normalizeAllOutboundDepartments();
             syncUnitBilingual();
             refreshAll();
@@ -6819,6 +7010,17 @@ function pollGistSync() {
 <!-- Gist Sync Status Indicator -->
 <div id="gist-sync-status" style="background:#27ae60;" title="Gist Sync">
     <span class="tooltip-text">Gist Sync</span>
+</div>
+
+<!-- 部门管理弹窗 -->
+<div class="dept-manager-overlay" id="dept-manager-overlay">
+    <div class="dept-manager">
+        <div class="dept-manager-header">
+            <h3 id="dept-manager-title">管理领用部门 / Управление отделами</h3>
+            <button class="dept-manager-close" id="btn-close-dept-manager">&times;</button>
+        </div>
+        <div class="dept-manager-body" id="dept-manager-body"></div>
+    </div>
 </div>
 
 </body>
