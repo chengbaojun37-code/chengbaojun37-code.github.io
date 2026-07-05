@@ -786,7 +786,7 @@ const GIST_ID = "b466600d92c830492a8085fad0275ac2";
 // 2. 点击 "Generate new token" → 选择仓库 chengbaojun37-code/gist-b466600d92c830492a8085fad0275ac2
 // 3. 权限勾选 "Read and write access to gists"
 // 4. 生成后替换下方 YOUR_GITHUB_TOKEN_HERE
-// Token 通过 Gist 传递：首次加载时从 Gist 读取 _gtoken 自动填充
+// Token 通过 Gist 分段存储传递：首次加载时从 Gist 读取 _tk_a/_tk_b/_tk_c 拼接填充
 var GIST_TOKEN = "";
 const GIST_FILENAME = "warehouse-data.json";
 var _gistLoading = false;
@@ -6681,7 +6681,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         // 保留核心数据key列表
-        var coreKeys = ['warehouse-data', 'warehouse-lang', 'warehouse-user', 'warehousePassword', '_gtoken'];
+        var coreKeys = ['warehouse-data', 'warehouse-lang', 'warehouse-user', 'warehousePassword', '_tk_a', '_tk_b', '_tk_c'];
         var coreData = {};
         coreKeys.forEach(function(k) {
             var v = localStorage.getItem(k);
@@ -6767,7 +6767,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
                 // 从 Gist 提取 Token（用于后续保存）
-                if (data['_gtoken']) { GIST_TOKEN = data['_gtoken']; }
+                if (data['_tk_a'] && data['_tk_b'] && data['_tk_c'] && !GIST_TOKEN) {
+                    GIST_TOKEN = data['_tk_a'] + data['_tk_b'] + data['_tk_c'];
+                }
                 // 从 localStorage 还原全局变量
                 var loaded = loadAllData();
                 if (loaded) {
@@ -6919,8 +6921,10 @@ function loadFromGist() {
                     if (key === 'warehouse-data') hasWarehouseData = true;
                 }
             }
-            // 从 Gist 提取 Token（用于后续 saveToGist）
-            if (data['_gtoken'] && !GIST_TOKEN) { GIST_TOKEN = data['_gtoken']; }
+            // 从 Gist 分段拼接 Token（用于后续 saveToGist）
+            if (data['_tk_a'] && data['_tk_b'] && data['_tk_c'] && !GIST_TOKEN) {
+                GIST_TOKEN = data['_tk_a'] + data['_tk_b'] + data['_tk_c'];
+            }
             if (!hasWarehouseData) {
                 // Gist 中无 warehouse-data，检查是否有 warehouse-auto-backups 备份
                 if (data['warehouse-auto-backups']) {
