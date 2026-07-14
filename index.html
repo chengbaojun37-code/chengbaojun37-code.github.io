@@ -6758,23 +6758,52 @@ function updateSyncStatus(state) {
     else if (state === 'failed') dot.style.background = '#e74c3c';
 }
 
-function saveToGist() {
+// --- Gist 上传限流控制 ---
+var _gistSaveDebounceTimer = null;
+var _gistSaveDebounceMs = 3000;        // 连续操作时 3 秒合并一次上传
+var _gistLastSavePayload = '';         // 上次成功上传的 payload，避免重复上传
+var _gistRateLimitedUntil = 0;         // 限流恢复时间戳（epoch 秒）
+// 防抖型 saveToGist：频繁调用只发最后一次
+function saveToGist(immediate) {
+    if (immediate) {
+        _doSaveToGist();
+        return;
+    }
+    if (_gistSaveDebounceTimer) clearTimeout(_gistSaveDebounceTimer);
+    _gistSaveDebounceTimer = setTimeout(_doSaveToGist, _gistSaveDebounceMs);
+}
+// 实际执行 PATCH 的内部函数
+function _doSaveToGist() {
     if (_gistLoading) return;
+    // 检查是否在限流等待期内
+    var nowSec = Math.floor(Date.now() / 1000);
+    if (_gistRateLimitedUntil > nowSec) {
+        var waitSec = _gistRateLimitedUntil - nowSec;
+        console.warn('Gist rate-limited, waiting ' + waitSec + 's');
+        localStorage.setItem('gist-pending-sync', 'true');
+        updateSyncStatus('pending');
+        // 在恢复时刻自动重试
+        setTimeout(function() { _gistRateLimitedUntil = 0; _doSaveToGist(); }, (waitSec + 5) * 1000);
+        return;
+    }
     updateSyncStatus('syncing');
-    // 遍历 localStorage 所有 key，上传完整快照（而非仅 warehouse-data 内部字段）
     var data = {};
     for (var i = 0; i < localStorage.length; i++) {
         var key = localStorage.key(i);
         data[key] = localStorage.getItem(key);
     }
-    // 强制注入分段 Token，防止 Gist 丢失 Token
     data['_tk_a'] = TK_A;
     data['_tk_b'] = TK_B;
     data['_tk_c'] = TK_C;
-    var body = {
-        files: {}
-    };
-    body.files[GIST_FILENAME] = { content: JSON.stringify(data) };
+    // 去重：payload 与上次成功上传相同时跳过
+    var payload = JSON.stringify(data);
+    if (payload === _gistLastSavePayload) {
+        localStorage.removeItem('gist-pending-sync');
+        updateSyncStatus('synced');
+        return;
+    }
+    var body = { files: {} };
+    body.files[GIST_FILENAME] = { content: payload };
     fetch('https://api.github.com/gists/' + GIST_ID, {
         method: 'PATCH',
         headers: {
@@ -6783,9 +6812,32 @@ function saveToGist() {
         },
         body: JSON.stringify(body)
     }).then(function(res) {
+        var remaining = res.headers.get('X-RateLimit-Remaining');
+        var resetEpoch = res.headers.get('X-RateLimit-Reset');
+        if (remaining !== null) {
+            var r = parseInt(remaining, 10);
+            if (r < 100) {
+                console.warn('Gist rate-limit low: ' + r + ' remaining, reset at ' + new Date((resetEpoch||0)*1000));
+            }
+        }
         if (res.ok) {
+            _gistLastSavePayload = payload;
             localStorage.removeItem('gist-pending-sync');
             updateSyncStatus('synced');
+        } else if (res.status === 403 || res.status === 429) {
+            // 被限流：按 X-RateLimit-Reset 设定恢复时间
+            if (resetEpoch) {
+                _gistRateLimitedUntil = parseInt(resetEpoch, 10);
+                console.warn('Gist rate-limited, will retry at ' + new Date(_gistRateLimitedUntil * 1000));
+            } else {
+                // 无 reset 头，默认等 5 分钟
+                _gistRateLimitedUntil = nowSec + 300;
+            }
+            localStorage.setItem('gist-pending-sync', 'true');
+            updateSyncStatus('pending');
+            // 计划在恢复时重试
+            var waitFor = (_gistRateLimitedUntil - nowSec + 5);
+            setTimeout(function() { _gistRateLimitedUntil = 0; _doSaveToGist(); }, waitFor * 1000);
         } else {
             console.warn('Gist sync failed: HTTP ' + res.status);
             updateSyncStatus('failed');
@@ -6794,6 +6846,8 @@ function saveToGist() {
         console.warn('Gist sync error:', err);
         localStorage.setItem('gist-pending-sync', 'true');
         updateSyncStatus('pending');
+        // 网络错误：30 秒后重试
+        setTimeout(function() { _doSaveToGist(); }, 30000);
     });
 }
 
