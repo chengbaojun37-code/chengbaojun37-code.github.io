@@ -5935,7 +5935,19 @@ function restoreDateInbound(year, month, day) {
 }
 
 // ========== 领用部门管理（全局） ==========
-var PRESET_DEPARTMENTS = [];
+var PRESET_DEPARTMENTS = [
+    '路西门店 / Люси',
+    '玛拉米拉门店 / Марамила',
+    '楚丁街门店 / Чудин',
+    '公园门店 / Парк',
+    '特维尔鲁宾店Филиал в ТЦ «Рубин», Тверь',
+    '特维尔12号大街店Магазин на 12-й улице Твери',
+    '特维尔里约/Филиал Тверь Рио',
+    '普斯科夫门店Магазин в Пскове',
+    'GLOBUS',
+    '仓库',
+    '加盟店'
+];
 
 function normalizeDepartment(dept) {
     if (!dept || !dept.trim()) return dept;
@@ -6028,6 +6040,7 @@ document.addEventListener('DOMContentLoaded', function() {
             restoreDateInbound(null, null, null);
             normalizeAllOutboundDepartments();
             syncUnitBilingual();
+            renderDeptDatalist();
             refreshAll();
         }
         // 无论 Gist 是否成功加载，只要有本地备份数据且无正式仓库数据，就显示恢复按钮
@@ -7003,6 +7016,7 @@ function pollGistSync() {
             restoreDateInbound(null, null, null);
             normalizeAllOutboundDepartments();
             syncUnitBilingual();
+            renderDeptDatalist();
             refreshAll();
         }
         trySyncPending();
