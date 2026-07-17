@@ -5927,7 +5927,8 @@ function restoreDateInbound(year, month, day) {
     for (var j = 0; j < inventory.length; j++) {
         var code = inventory[j].code;
         if (summary.hasOwnProperty(code)) {
-            inventory[j]._cumIn = summary[code];
+            // 取 recalculate 值和已保存值中的较大者，防止 Gist 数据缺失导致 _cumIn 回退
+            inventory[j]._cumIn = Math.max(summary[code], inventory[j]._cumIn || 0);
             inventory[j].stock = inventory[j].initialStock + inventory[j]._cumIn - inventory[j]._cumOut;
         }
     }
