@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -7241,12 +7241,12 @@ document.addEventListener('focusout', function(e) {
     // 动态加载 ZXing-js（@zxing/browser）UMD
     function loadZxing() {
         return new Promise(function(resolve, reject) {
-            if (window.ZXing && window.ZXing.BrowserMultiFormatReader) return resolve();
+            if (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader) return resolve();
             var script = document.createElement('script');
             script.src = 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
             script.async = true;
             script.onload = function() {
-                if (window.ZXing && window.ZXing.BrowserMultiFormatReader) resolve();
+                if (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader) resolve();
                 else reject(new Error('ZXing loaded but BrowserMultiFormatReader missing'));
             };
             script.onerror = function() { reject(new Error('无法加载 ZXing 库')); };
@@ -7305,7 +7305,7 @@ document.addEventListener('focusout', function(e) {
         }).then(function() {
             setStatus('请将条形码对准取景框', 'info');
             // 使用 ZXing 实时识别
-            codeReader = new ZXing.BrowserMultiFormatReader();
+            codeReader = new ZXingBrowser.BrowserMultiFormatReader();
             codeReader.decodeFromVideoElement(video, function(result, err) {
                 if (result) {
                     onBarcodeScanned(result.getText());
@@ -7320,7 +7320,7 @@ document.addEventListener('focusout', function(e) {
                 return video.play();
             }).then(function() {
                 setStatus('已切换到默认摄像头，请将条形码对准取景框', 'info');
-                codeReader = new ZXing.BrowserMultiFormatReader();
+                codeReader = new ZXingBrowser.BrowserMultiFormatReader();
                 codeReader.decodeFromVideoElement(video, function(result, err) {
                     if (result) onBarcodeScanned(result.getText());
                 });
