@@ -388,6 +388,104 @@
         .btn-manage-dept { background:none; border:1px solid #3498db; color:#3498db; border-radius:4px; cursor:pointer; padding:6px 12px; font-size:13px; vertical-align:middle; margin-left:6px; }
         .btn-manage-dept:hover { background:#3498db; color:white; }
 
+        /* ===== 条形码扫码 ===== */
+        .btn-scan {
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            padding: 10px 14px; margin-top: 24px; border: 2px solid #27ae60;
+            background: #27ae60; color: #fff; border-radius: var(--border-radius);
+            cursor: pointer; font-size: 14px; font-weight: 500;
+            transition: all 0.2s; white-space: nowrap;
+        }
+        .btn-scan:hover { background: #229954; border-color: #229954; }
+        .btn-scan:active { transform: scale(0.98); }
+        .btn-scan svg { width: 16px; height: 16px; fill: currentColor; }
+        /* 输入框右侧的内嵌扫码按钮（小尺寸） */
+        .code-wrapper { display: flex; gap: 6px; align-items: stretch; }
+        .code-wrapper > .code-input-grow { flex: 1; min-width: 0; }
+        .code-wrapper > .code-input-grow input { width: 100%; }
+        .btn-scan-inline {
+            display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+            padding: 0 12px; border: 2px solid #27ae60; background: #27ae60; color: #fff;
+            border-radius: var(--border-radius); cursor: pointer; font-size: 13px;
+            font-weight: 500; transition: all 0.2s; white-space: nowrap;
+        }
+        .btn-scan-inline:hover { background: #229954; }
+        .btn-scan-inline svg { width: 14px; height: 14px; fill: currentColor; }
+        /* 扫码模态框 */
+        .scan-modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 10001;
+            justify-content: center; align-items: center; padding: 20px;
+        }
+        .scan-modal-overlay.show { display: flex; }
+        .scan-modal {
+            background: #fff; border-radius: 14px; padding: 20px; width: 460px; max-width: 100%;
+            max-height: 95vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+            display: flex; flex-direction: column;
+        }
+        .scan-modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 12px; flex-shrink: 0;
+        }
+        .scan-modal-header h3 { margin: 0; font-size: 17px; color: #2c3e50; }
+        .scan-modal-close {
+            background: none; border: none; font-size: 24px; cursor: pointer; color: #999;
+            line-height: 1; padding: 4px 8px;
+        }
+        .scan-modal-close:hover { color: #e74c3c; }
+        .scan-video-wrap {
+            position: relative; width: 100%; background: #000;
+            border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; flex-shrink: 0;
+        }
+        .scan-video-wrap video {
+            width: 100%; height: 100%; object-fit: cover; display: block;
+        }
+        .scan-reticle {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 70%; aspect-ratio: 4 / 1.2; border: 2px solid #27ae60;
+            border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.35);
+            pointer-events: none;
+        }
+        .scan-reticle::before, .scan-reticle::after {
+            content: ''; position: absolute; left: 0; right: 0; height: 2px;
+            background: #27ae60; animation: scanLine 1.6s ease-in-out infinite;
+        }
+        @keyframes scanLine {
+            0%, 100% { top: 0; opacity: 0.9; }
+            50% { top: 100%; opacity: 0.9; }
+        }
+        .scan-status {
+            margin-top: 10px; padding: 10px 14px; border-radius: 8px;
+            background: #ecf0f1; color: #2c3e50; font-size: 13px; text-align: center;
+            min-height: 20px; flex-shrink: 0;
+        }
+        .scan-status.success { background: #d5f5e3; color: #1e8449; }
+        .scan-status.error { background: #fadbd8; color: #922b21; }
+        .scan-status.info { background: #e8f4fd; color: #185fa5; }
+        .scan-manual {
+            margin-top: 10px; display: flex; gap: 6px; flex-shrink: 0;
+        }
+        .scan-manual input {
+            flex: 1; padding: 8px 12px; border: 2px solid #bdc3c7;
+            border-radius: 6px; font-size: 14px; outline: none;
+        }
+        .scan-manual input:focus { border-color: #27ae60; }
+        .scan-manual button {
+            padding: 8px 16px; border: none; background: #3498db; color: #fff;
+            border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;
+        }
+        .scan-manual button:hover { background: #2980b9; }
+        .scan-tips {
+            margin-top: 8px; font-size: 11px; color: #7f8c8d; text-align: center;
+            flex-shrink: 0;
+        }
+        @media (max-width: 480px) {
+            .scan-modal { padding: 14px; }
+            .scan-modal-header h3 { font-size: 15px; }
+            .btn-scan-inline span { display: none; }
+            .btn-scan-inline { padding: 0 10px; }
+        }
+
     </style>
 </head>
 <body>
@@ -404,6 +502,7 @@
             <button class="btn-pwd admin-only" id="btn-set-password" title="设置清除数据密码">设置密码</button>
         </div>
         <button class="btn-save-system admin-only" id="btn-save-system">保存系统</button>
+        <button class="btn-save-system admin-only" id="btn-sync-pages" style="background:#9b59b6;margin-left:6px;" title="将当前系统（含扫码模块）同步推送到 GitHub Pages 网页版">同步到网页版</button>
         <div class="lang-selector">
             <button class="lang-btn active" data-lang="zh">中文</button>
             <button class="lang-btn" data-lang="ru">Русский</button>
@@ -511,8 +610,14 @@
                 <div class="form-group">
                     <label for="inbound-code" id="label-inbound-code">物料编号</label>
                     <div class="code-wrapper">
-                        <input type="text" id="inbound-code" required autocomplete="off">
-                        <ul class="code-suggestions" id="inbound-code-suggestions"></ul>
+                        <div class="code-input-grow">
+                            <input type="text" id="inbound-code" required autocomplete="off">
+                            <ul class="code-suggestions" id="inbound-code-suggestions"></ul>
+                        </div>
+                        <button type="button" class="btn-scan-inline" id="btn-scan-inbound" title="扫描条形码 / Сканировать штрихкод">
+                            <svg viewBox="0 0 24 24"><path d="M4 6h2v12H4V6zm3 0h1v12H7V6zm2 0h2v12H9V6zm3 0h1v12h-1V6zm2 0h3v12h-3V6zm4 0h1v12h-1V6zm2 0h2v12h-2V6zM3 4h18v2H3V4zm0 14h18v2H3v-2z"/></svg>
+                            <span>扫码</span>
+                        </button>
                     </div>
                 </div>
                 <div class="form-group">
@@ -600,8 +705,14 @@
                 <div class="form-group">
                     <label for="outbound-code" id="label-outbound-code">物料编号</label>
                     <div class="code-wrapper">
-                        <input type="text" id="outbound-code" required autocomplete="off">
-                        <ul class="code-suggestions" id="outbound-code-suggestions"></ul>
+                        <div class="code-input-grow">
+                            <input type="text" id="outbound-code" required autocomplete="off">
+                            <ul class="code-suggestions" id="outbound-code-suggestions"></ul>
+                        </div>
+                        <button type="button" class="btn-scan-inline" id="btn-scan-outbound" title="扫描条形码 / Сканировать штрихкод">
+                            <svg viewBox="0 0 24 24"><path d="M4 6h2v12H4V6zm3 0h1v12H7V6zm2 0h2v12H9V6zm3 0h1v12h-1V6zm2 0h3v12h-3V6zm4 0h1v12h-1V6zm2 0h2v12h-2V6zM3 4h18v2H3V4zm0 14h18v2H3v-2z"/></svg>
+                            <span>扫码</span>
+                        </button>
                     </div>
                 </div>
                 <div class="form-group">
@@ -6068,9 +6179,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 } catch(e) {}
             }
         }
-        // 启动 Gist 自动轮询（每15秒）
+        // 启动 Gist 自动轮询（每10秒，更及时同步其他客户端的扫码数据）
         if (!syncPollTimer) {
-            syncPollTimer = setInterval(pollGistSync, 15000);
+            syncPollTimer = setInterval(pollGistSync, 10000);
         }
         _gistLoading = false;
         trySyncPending();
@@ -6729,6 +6840,42 @@ document.addEventListener('DOMContentLoaded', function() {
         showAlert('success', detail, 'summary');
     });
 
+    // 同步到网页版（GitHub Pages）
+    document.getElementById('btn-sync-pages').addEventListener('click', function() {
+        if (!isAdmin) return;
+        var isZh = currentLang === 'zh';
+        var msg = isZh
+            ? '同步说明：\n\n1. 推送前确保已安装 Git 并登录 GitHub\n2. 已克隆过仓库的会直接推送；首次需要配置 Personal Access Token\n3. 双击桌面「一键同步到网页版.bat」也可执行\n\n是否现在下载同步脚本？'
+            : 'Инструкция по синхронизации...';
+        if (!confirm(msg)) return;
+        // 下载一键同步脚本
+        var scriptContent = [
+            '@echo off',
+            'chcp 65001 >nul',
+            'title Sync warehouse to GitHub Pages',
+            'set REPO_URL=https://github.com/chengbaojun37-code/chengbaojun37-code.github.io.git',
+            'set REPO_DIR=%USERPROFILE%\\warehouse-pages-repo',
+            'if not exist "%REPO_DIR%" ( git clone "%REPO_URL%" "%REPO_DIR%" )',
+            'cd /d "%REPO_DIR%"',
+            'git pull origin main 2>nul || git pull origin master 2>nul',
+            'copy /Y "%USERPROFILE%\\Desktop\\仓库出入库管理系统.html" "index.html"',
+            'git add index.html',
+            'git commit -m "feat: 同步本地版" 2>nul',
+            'git push origin main 2>nul || git push origin master 2>nul',
+            'echo. & echo Done! & pause'
+        ].join('\r\n');
+        var blob = new Blob([scriptContent], { type: 'application/octet-stream' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'sync-warehouse-to-pages.bat';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        showAlert('success',
+            isZh ? '同步脚本已下载。双击运行即可推送代码到网页版。' : 'Скрипт синхронизации загружен.',
+            'summary');
+    });
+
     // Gist 同步状态点点击手动同步
     document.getElementById('gist-sync-status').addEventListener('click', function() {
         updateSyncStatus('syncing');
@@ -7002,6 +7149,13 @@ function trySyncPending() {
 }
 
 function pollGistSync() {
+    // 如果用户正在编辑表单（焦点在输入框/textarea），跳过本次避免打断
+    if (isEditing) {
+        console.log('Gist poll: skipped (user editing)');
+        return;
+    }
+    var beforeVersion = dataVersion;
+    var beforeLogCount = operationLogs.length;
     loadFromGist().then(function(gistLoaded) {
         if (gistLoaded) {
             // 重新合并图片
@@ -7019,10 +7173,235 @@ function pollGistSync() {
             syncUnitBilingual();
             renderDeptDatalist();
             refreshAll();
+            // 检测是否真的有新数据（版本号或日志数变化）
+            if (dataVersion > beforeVersion || operationLogs.length > beforeLogCount) {
+                showSyncToast(currentLang === 'zh' ? '已同步其他设备的最新数据' : 'Синхронизировано');
+            }
         }
+        // 更新最后同步时间
+        window._lastSyncTime = Date.now();
+        updateSyncTimeDisplay();
         trySyncPending();
     });
 }
+
+// 轻量 toast 提示（同步状态用）
+function showSyncToast(msg) {
+    var el = document.getElementById('sync-toast');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'sync-toast';
+        el.style.cssText = 'position:fixed;bottom:60px;right:20px;background:#27ae60;color:#fff;padding:10px 18px;border-radius:6px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.2);z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;';
+        document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = '1';
+    clearTimeout(window._syncToastTimer);
+    window._syncToastTimer = setTimeout(function() { el.style.opacity = '0'; }, 2500);
+}
+
+// 更新最后同步时间显示
+function updateSyncTimeDisplay() {
+    var el = document.getElementById('sync-time-label');
+    if (!el) return;
+    if (!window._lastSyncTime) { el.textContent = ''; return; }
+    var sec = Math.floor((Date.now() - window._lastSyncTime) / 1000);
+    if (sec < 60) el.textContent = currentLang === 'zh' ? ('同步于 ' + sec + ' 秒前') : (sec + 's назад');
+    else el.textContent = currentLang === 'zh' ? ('同步于 ' + Math.floor(sec/60) + ' 分钟前') : (Math.floor(sec/60) + 'm назад');
+}
+
+// 每秒刷新时间标签
+setInterval(updateSyncTimeDisplay, 1000);
+
+// 全局监听输入框聚焦，作为 isEditing 兜底（防止轮询打断扫码录入）
+document.addEventListener('focusin', function(e) {
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) {
+        isEditing = true;
+    }
+});
+document.addEventListener('focusout', function(e) {
+    setTimeout(function() {
+        var ae = document.activeElement;
+        if (!ae || (ae.tagName !== 'INPUT' && ae.tagName !== 'TEXTAREA' && ae.tagName !== 'SELECT')) {
+            isEditing = false;
+        }
+    }, 100);
+});
+
+
+// ========== 条形码扫码模块 ==========
+(function() {
+    var scanStream = null;
+    var scanTrack = null;
+    var codeReader = null;        // ZXing BrowserMultiFormatReader
+    var scanTargetInputId = null; // 'inbound-code' 或 'outbound-code'
+    var scanTargetForm = null;    // 'inbound' 或 'outbound'
+
+    // 动态加载 ZXing-js（@zxing/browser）UMD
+    function loadZxing() {
+        return new Promise(function(resolve, reject) {
+            if (window.ZXing && window.ZXing.BrowserMultiFormatReader) return resolve();
+            var script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
+            script.async = true;
+            script.onload = function() {
+                if (window.ZXing && window.ZXing.BrowserMultiFormatReader) resolve();
+                else reject(new Error('ZXing loaded but BrowserMultiFormatReader missing'));
+            };
+            script.onerror = function() { reject(new Error('无法加载 ZXing 库')); };
+            document.head.appendChild(script);
+        });
+    }
+
+    function setStatus(text, type) {
+        var el = document.getElementById('scan-status');
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'scan-status' + (type ? ' ' + type : '');
+    }
+
+    function openScanModal(targetInputId) {
+        scanTargetInputId = targetInputId;
+        scanTargetForm = targetInputId.indexOf('inbound') === 0 ? 'inbound' : 'outbound';
+        document.getElementById('scan-modal-overlay').classList.add('show');
+        document.getElementById('scan-manual-input').value = '';
+        setStatus('正在启动摄像头…', 'info');
+        loadZxing().then(startCamera).catch(function(err) {
+            setStatus(err.message || '加载扫码库失败，请检查网络', 'error');
+        });
+    }
+
+    function closeScanModal() {
+        document.getElementById('scan-modal-overlay').classList.remove('show');
+        stopCamera();
+    }
+
+    function stopCamera() {
+        try { if (codeReader && codeReader.reset) codeReader.reset(); } catch(e) {}
+        try { if (scanTrack) scanTrack.stop(); } catch(e) {}
+        if (scanStream) {
+            try { scanStream.getTracks().forEach(function(t){ t.stop(); }); } catch(e) {}
+            scanStream = null;
+        }
+        scanTrack = null;
+        codeReader = null;
+        var v = document.getElementById('scan-video');
+        if (v) { v.srcObject = null; }
+    }
+
+    function startCamera() {
+        var video = document.getElementById('scan-video');
+        // 优先使用后置摄像头（手机）
+        var constraints = {
+            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false
+        };
+        navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
+            scanStream = stream;
+            scanTrack = stream.getVideoTracks()[0];
+            video.srcObject = stream;
+            return video.play();
+        }).then(function() {
+            setStatus('请将条形码对准取景框', 'info');
+            // 使用 ZXing 实时识别
+            codeReader = new ZXing.BrowserMultiFormatReader();
+            codeReader.decodeFromVideoElement(video, function(result, err) {
+                if (result) {
+                    onBarcodeScanned(result.getText());
+                }
+            });
+        }).catch(function(err) {
+            // 后置摄像头失败时尝试任意摄像头
+            navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then(function(stream) {
+                scanStream = stream;
+                scanTrack = stream.getVideoTracks()[0];
+                video.srcObject = stream;
+                return video.play();
+            }).then(function() {
+                setStatus('已切换到默认摄像头，请将条形码对准取景框', 'info');
+                codeReader = new ZXing.BrowserMultiFormatReader();
+                codeReader.decodeFromVideoElement(video, function(result, err) {
+                    if (result) onBarcodeScanned(result.getText());
+                });
+            }).catch(function(err2) {
+                setStatus('无法访问摄像头：' + (err2.message || err.message || '请检查权限'), 'error');
+            });
+        });
+    }
+
+    function onBarcodeScanned(code) {
+        if (!code) return;
+        code = String(code).trim();
+        setStatus('✓ 已识别：' + code + '，正在匹配物料…', 'success');
+        // 关闭摄像头，避免连续触发
+        stopCamera();
+        fillCodeToForm(code);
+        // 稍后关闭弹窗，给用户看到识别结果
+        setTimeout(function() { closeScanModal(); }, 600);
+    }
+
+    function fillCodeToForm(code) {
+        var input = document.getElementById(scanTargetInputId);
+        if (!input) return;
+        input.value = code;
+        // 触发 input 事件，让 setupCodeAutofill 自动补全物料信息
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        // 聚焦到数量输入框
+        setTimeout(function() {
+            var qtyId = scanTargetForm === 'inbound' ? 'inbound-quantity' : 'outbound-quantity';
+            var qty = document.getElementById(qtyId);
+            if (qty) {
+                qty.focus();
+                qty.select && qty.select();
+            }
+        }, 100);
+    }
+
+    // 手动输入兜底
+    function manualSubmit() {
+        var v = document.getElementById('scan-manual-input').value.trim();
+        if (!v) {
+            setStatus('请先输入物料编号', 'error');
+            return;
+        }
+        stopCamera();
+        fillCodeToForm(v);
+        closeScanModal();
+    }
+
+    // 事件绑定
+    document.addEventListener('DOMContentLoaded', function() {
+        var btnIn = document.getElementById('btn-scan-inbound');
+        var btnOut = document.getElementById('btn-scan-outbound');
+        if (btnIn) btnIn.addEventListener('click', function() { openScanModal('inbound-code'); });
+        if (btnOut) btnOut.addEventListener('click', function() { openScanModal('outbound-code'); });
+
+        var btnClose = document.getElementById('btn-scan-close');
+        if (btnClose) btnClose.addEventListener('click', closeScanModal);
+
+        var overlay = document.getElementById('scan-modal-overlay');
+        if (overlay) overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) closeScanModal();
+        });
+
+        var btnManual = document.getElementById('btn-scan-manual-submit');
+        if (btnManual) btnManual.addEventListener('click', manualSubmit);
+
+        var manualInput = document.getElementById('scan-manual-input');
+        if (manualInput) manualInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); manualSubmit(); }
+        });
+
+        // ESC 关闭
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                var ov = document.getElementById('scan-modal-overlay');
+                if (ov && ov.classList.contains('show')) closeScanModal();
+            }
+        });
+    });
+})();
 
 
 </script>
@@ -7050,6 +7429,7 @@ function pollGistSync() {
 <div id="gist-sync-status" style="background:#27ae60;" title="Gist Sync">
     <span class="tooltip-text">Gist Sync</span>
 </div>
+<span id="sync-time-label" style="position:fixed;bottom:20px;right:40px;font-size:11px;color:#7f8c8d;z-index:9999;background:rgba(255,255,255,0.85);padding:2px 6px;border-radius:3px;"></span>
 
 <!-- 部门管理弹窗 -->
 <div class="dept-manager-overlay" id="dept-manager-overlay">
@@ -7059,6 +7439,26 @@ function pollGistSync() {
             <button class="dept-manager-close" id="btn-close-dept-manager">&times;</button>
         </div>
         <div class="dept-manager-body" id="dept-manager-body"></div>
+    </div>
+</div>
+
+<!-- ===== 条形码扫码弹窗 ===== -->
+<div class="scan-modal-overlay" id="scan-modal-overlay">
+    <div class="scan-modal">
+        <div class="scan-modal-header">
+            <h3 id="scan-modal-title">扫描条形码 / Сканировать штрихкод</h3>
+            <button class="scan-modal-close" id="btn-scan-close" title="关闭">&times;</button>
+        </div>
+        <div class="scan-video-wrap">
+            <video id="scan-video" playsinline muted autoplay></video>
+            <div class="scan-reticle"></div>
+        </div>
+        <div class="scan-status" id="scan-status">正在启动摄像头…</div>
+        <div class="scan-manual">
+            <input type="text" id="scan-manual-input" placeholder="无法扫码？手动输入编号后回车" autocomplete="off">
+            <button type="button" id="btn-scan-manual-submit">确定</button>
+        </div>
+        <div class="scan-tips">提示：将条形码对准框内，保持光线充足与稳定。支持 EAN-13 / Code128 / QR 等。</div>
     </div>
 </div>
 
