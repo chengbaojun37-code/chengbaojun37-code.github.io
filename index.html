@@ -502,13 +502,14 @@
             <button class="btn-pwd admin-only" id="btn-set-password" title="设置清除数据密码">设置密码</button>
         </div>
         <button class="btn-save-system admin-only" id="btn-save-system">保存系统</button>
-        <button class="btn-save-system admin-only" id="btn-sync-pages" style="background:#9b59b6;margin-left:6px;" title="将当前系统（含扫码模块）同步推送到 GitHub Pages 网页版">同步到网页版</button>
+        <button class="btn-save-system admin-only" id="btn-sync-pages" style="background:#9b59b6;margin-left:6px;" title="下载一键脚本：自动 cp 到 appdata 网页版 + 推送 GitHub Pages">同步到网页版</button>
         <div class="lang-selector">
             <button class="lang-btn active" data-lang="zh">中文</button>
             <button class="lang-btn" data-lang="ru">Русский</button>
         </div>
-        <span class="role-status admin" id="role-status-display">管理员</span>
-        <button class="btn-login-status" id="btn-login-status">退出登录</button>
+<span class="role-status admin" id="role-status-display">管理员</span>
+    <span id="run-mode-badge" style="display:none; padding:4px 10px; border-radius:4px; font-size:12px; font-weight:600; margin-left:6px; background:#9b59b6; color:#fff; white-space:nowrap;" title=""></span>
+    <button class="btn-login-status" id="btn-login-status">退出登录</button>
     </div>
 </div>
 
@@ -891,20 +892,29 @@
 
 <script>
 
-const GIST_ID = "b466600d92c830492a8085fad0275ac2";
-// GitHub Token 获取步骤：
-// 1. 访问 https://github.com/settings/tokens?type=beta
-// 2. 点击 "Generate new token" → 选择仓库 chengbaojun37-code/gist-b466600d92c830492a8085fad0275ac2
-// 3. 权限勾选 "Read and write access to gists"
-// 4. 生成后替换下方 YOUR_GITHUB_TOKEN_HERE
-// Token 通过 Gist 分段存储传递：首次加载时从 Gist 读取 _tk_a/_tk_b/_tk_c 拼接填充
-const TK_A = "ghp_FdhqV23ORR";
-const TK_B = "nwNo6MVeX6oYK";
-const TK_C = "0ooGndN0rRGf8";
-var GIST_TOKEN = TK_A + TK_B + TK_C;
+const GIST_ID = "new-system-standalone";
+// 安全说明：旧版硬编码 GitHub Token 已移除 (CVE: 源码泄露 = Token 泄露)。
+// 首次使用时通过浏览器控制台执行一次 setGistToken('ghp_xxx') 注入；
+// Token 仅写入 localStorage，永远不再上传到 Gist 公共存储。
+const TK_A = localStorage.getItem('_tk_a-new') || '';
+const TK_B = localStorage.getItem('_tk_b-new') || '';
+const TK_C = localStorage.getItem('_tk_c-new') || '';
+var GIST_TOKEN = (TK_A + TK_B + TK_C) || null;
+// 紧急手动注入入口（仅在控制台执行，不会在 HTML/源码留下痕迹）
+window.setGistToken = function(token) {
+    var a = token.slice(0, 12), b = token.slice(12, 24), c = token.slice(24);
+    localStorage.setItem('_tk_a-new', a);
+    localStorage.setItem('_tk_b-new', b);
+    localStorage.setItem('_tk_c-new', c);
+    GIST_TOKEN = token;
+    console.info('Gist token updated');
+};
 const GIST_FILENAME = "warehouse-data.json";
 var _gistLoading = false;
 var syncPollTimer = null;
+// 运行模式检测：桌面版 (file://) vs 网页版 (http/https://)
+window.RUN_MODE = (location.protocol === 'file:') ? 'desktop' : 'web';
+window.IS_WEB_MODE = (window.RUN_MODE === 'web');
 
 const translations = {
     zh: {
@@ -1077,8 +1087,8 @@ const translations = {
     }
 };
 
-let currentLang = localStorage.getItem('warehouse-lang') || 'zh';
-let currentUser = localStorage.getItem('warehouse-user') || '';
+let currentLang = localStorage.getItem('warehouse-lang-new') || 'zh';
+let currentUser = localStorage.getItem('warehouse-user-new') || '';
 let inventory = [];
 let inboundHistory = [];
 let outboundHistory = [];
@@ -1089,14 +1099,27 @@ let inboundImageData = null;
 let summarySortCol = null;
 let summarySortDir = 1;
 let summarySubTab = 'all';
-    overviewSourceFilter = 'all';
-    summarySourceFilter = 'all'; // 当前实时库存子标签：'all' | 'SB' | 'PJ' | 'BC' | 'SC' | 'ZC'
+let overviewSourceFilter = 'all';
+let summarySourceFilter = 'all'; // 当前实时库存子标签：'all' | 'SB' | 'PJ' | 'BC' | 'SC' | 'ZC'
 let pendingImportData = null;
-let warehousePassword = localStorage.getItem('warehousePassword') || 'admin123';
+// 安全：保留向后兼容性 —— localStorage 没密码时使用默认 admin123，
+// 不再覆盖用户已有密码。这样已经能正常登录的用户不会被踢出。
+var _passwordNeedsReset = false;
+var _storedPwd = localStorage.getItem('warehousePassword-new');
+if (!_storedPwd) {
+    // 首次访问：使用默认密码（保持旧行为，避免用户被踢出）
+    localStorage.setItem('warehousePassword-new', 'admin123');
+    _passwordNeedsReset = true;
+    console.warn('[Security] 首次启动，使用默认密码 admin123。请在"设置密码"中立即修改！');
+} else if (_storedPwd === 'admin123') {
+    _passwordNeedsReset = true;
+    console.warn('[Security] 当前仍是默认密码 admin123，请在"设置密码"中修改为强密码。');
+}
+let warehousePassword = localStorage.getItem('warehousePassword-new') || 'admin123';
 let backupTimer = null;
 let isEditing = false;
 let inventorySearchTerm = '';
-let isAdmin = sessionStorage.getItem('warehouse-is-admin') === 'true';
+let isAdmin = sessionStorage.getItem('warehouse-is-admin-new') === 'true';
 
 
 function updateRoleUI() {
@@ -1126,6 +1149,21 @@ function showLoginModal() {
     document.getElementById('btn-login-guest').textContent = t.btnGuest;
     document.getElementById('login-error').classList.remove('show');
     document.getElementById('login-password-input').value = '';
+    // 安全提示：当前密码仍是默认 admin123 时，提醒用户修改
+    var hintEl = document.getElementById('login-default-pwd-hint');
+    if (hintEl) {
+        if (warehousePassword === 'admin123') {
+            hintEl.style.display = 'block';
+            var titleEl = document.getElementById('login-default-pwd-title');
+            var textEl = document.getElementById('login-default-pwd-text');
+            if (titleEl) titleEl.textContent = currentLang === 'zh' ? '当前为默认密码' : 'Используется пароль по умолчанию';
+            if (textEl) textEl.innerHTML = currentLang === 'zh'
+                ? '默认密码为 <code>admin123</code>，登录后请立即在"设置密码"中修改为强密码。'
+                : 'Пароль по умолчанию: <code>admin123</code>. Смените его после входа.';
+        } else {
+            hintEl.style.display = 'none';
+        }
+    }
     document.getElementById('login-modal-overlay').classList.remove('hidden');
     document.getElementById('login-password-input').focus();
 }
@@ -1142,9 +1180,13 @@ function loginAsAdmin() {
         document.getElementById('login-error').classList.add('show');
         return;
     }
-    if (input.value === warehousePassword) {
+    // 安全：登录时直接从 localStorage 读最新密码，不用变量
+    // （变量可能在 loadFromGist/loadAllData 后被覆盖）
+    var currentPwd = localStorage.getItem('warehousePassword-new') || 'admin123';
+    if (input.value === currentPwd) {
         isAdmin = true;
-        sessionStorage.setItem('warehouse-is-admin', 'true');
+        warehousePassword = currentPwd; // 同步更新变量
+        sessionStorage.setItem('warehouse-is-admin-new', 'true');
         hideLoginModal();
         updateRoleUI();
     } else {
@@ -1157,7 +1199,7 @@ function loginAsAdmin() {
 
 function loginAsGuest() {
     isAdmin = false;
-    sessionStorage.setItem('warehouse-is-admin', 'false');
+    sessionStorage.setItem('warehouse-is-admin-new', 'false');
     hideLoginModal();
     updateRoleUI();
 }
@@ -1165,7 +1207,7 @@ function loginAsGuest() {
 function toggleLoginState() {
     if (isAdmin) {
         isAdmin = false;
-        sessionStorage.removeItem('warehouse-is-admin');
+        sessionStorage.removeItem('warehouse-is-admin-new');
         updateRoleUI();
     } else {
         showLoginModal();
@@ -1392,7 +1434,10 @@ function exportToCSV() {
     if (summarySourceFilter !== 'all') { exportData = exportData.filter(function(item) { return (item.source || 'cn') === summarySourceFilter; }); }
     exportData.forEach(function(item) {
         const ss = getStockStatus(item), es = getExpireStatus(item.expireDate);
-        const row = [item.code,item.name,item.spec,item.unit||t.unit,item.safeStock,item.initialStock||0,item._cumIn||0,item._cumOut||0,item.stock,t['status'+ss.charAt(0).toUpperCase()+ss.slice(1)],getShelfDays(item.expireDate),item.prodDate||'',item.expireDate||'',t['status'+es.charAt(0).toUpperCase()+es.slice(1)]];
+        // 安全：到期日缺失时 getShelfDays 返回 '-'，直接拼会得到 'NaN 天'
+        var shelf = getShelfDays(item.expireDate);
+        shelf = (shelf === '-' || isNaN(shelf)) ? '-' : (shelf + ' ' + t.dayUnit);
+        const row = [item.code,item.name,item.spec,item.unit||t.unit,item.safeStock,item.initialStock||0,item._cumIn||0,item._cumOut||0,item.stock,t['status'+ss.charAt(0).toUpperCase()+ss.slice(1)],shelf,item.prodDate||'',item.expireDate||'',t['status'+es.charAt(0).toUpperCase()+es.slice(1)]];
         csv += row.map(function(v) { return '"' + String(v).replace(/"/g,'""') + '"'; }).join(',') + '\n';
     });
     downloadFile(csv, '实时库存总表.csv', 'text/csv;charset=utf-8');
@@ -1490,8 +1535,15 @@ function showImportPreview(data) {
         '</div>';
     preview.style.display = 'block';
 
-    document.getElementById('btn-import-confirm').addEventListener('click', function() { executeImport(data); });
-    document.getElementById('btn-import-cancel').addEventListener('click', function() {
+    // 每次打开预览前先解绑旧监听器，避免重复触发
+    var oldConfirm = document.getElementById('btn-import-confirm');
+    var oldCancel = document.getElementById('btn-import-cancel');
+    var newConfirm = oldConfirm.cloneNode(true);
+    var newCancel = oldCancel.cloneNode(true);
+    oldConfirm.parentNode.replaceChild(newConfirm, oldConfirm);
+    oldCancel.parentNode.replaceChild(newCancel, oldCancel);
+    newConfirm.addEventListener('click', function() { executeImport(data); });
+    newCancel.addEventListener('click', function() {
         pendingImportData = null;
         preview.style.display = 'none';
     });
@@ -1612,7 +1664,7 @@ function deleteLogEntry(idx) {
 // 切换语言
 function switchLanguage(lang) {
     currentLang = lang;
-    localStorage.setItem('warehouse-lang', lang);
+    localStorage.setItem('warehouse-lang-new', lang);
     document.querySelectorAll('.lang-btn').forEach(function(btn) { btn.classList.toggle('active', btn.dataset.lang === lang); });
     const t = translations[lang];
 
@@ -1715,9 +1767,9 @@ function renderHistoryTables() {
     const inboundBody = document.querySelector('#inbound-table tbody');
     inboundBody.innerHTML = '';
     inboundHistory.forEach(function(record) {
-        const imgHtml = record.image ? '<img src="'+record.image+'" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:4px;">' : '-';
+        const imgHtml = record.image ? '<img src="'+escapeHTMLAttr(record.image)+'" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:4px;">' : '-';
         const tr = document.createElement('tr');
-        tr.innerHTML = '<td>'+record.date+'</td><td>'+record.code+'</td><td>'+imgHtml+'</td><td>'+record.name+'</td><td>'+record.quantity+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+record.supplier+'</td><td>'+(record.personnel||'-')+'</td><td>'+record.operator+'</td>';
+        tr.innerHTML = '<td>'+escapeHTML(record.date)+'</td><td>'+escapeHTML(record.code)+'</td><td>'+imgHtml+'</td><td>'+escapeHTML(record.name)+'</td><td>'+escapeHTML(String(record.quantity))+'</td><td>'+escapeHTML(unitMap[record.code]||'-')+'</td><td>'+escapeHTML(record.supplier||'')+'</td><td>'+escapeHTML(record.personnel||'-')+'</td><td>'+escapeHTML(record.operator||'')+'</td>';
         inboundBody.appendChild(tr);
     });
     const outboundContainer = document.getElementById('outbound-history-container');
@@ -1755,8 +1807,8 @@ function renderHistoryTables() {
             var tbody = table.querySelector('tbody');
             deptGroups[dept].forEach(function(record) {
                 var tr = document.createElement('tr');
-                tr.innerHTML = '<td>'+record.date+'</td><td>'+record.code+'</td><td>'+record.name+'</td>' +
-                    '<td>'+record.quantity+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+normalizeDepartment(record.department||'-')+'</td><td>'+record.operator+'</td>';
+                tr.innerHTML = '<td>'+escapeHTML(record.date)+'</td><td>'+escapeHTML(record.code)+'</td><td>'+escapeHTML(record.name)+'</td>' +
+                    '<td>'+escapeHTML(String(record.quantity))+'</td><td>'+escapeHTML(unitMap[record.code]||'-')+'</td><td>'+escapeHTML(normalizeDepartment(record.department||'-'))+'</td><td>'+escapeHTML(record.operator||'')+'</td>';
                 tbody.appendChild(tr);
             });
             sectionDiv.appendChild(table);
@@ -1927,13 +1979,13 @@ function renderPeriodOutbound() {
                 var opList = Object.keys(a.operators).join(', ');
                 var noteStr = a.notes.length > 0 ? a.notes.join('; ') : '-';
                 var tr = document.createElement('tr');
-                tr.innerHTML = '<td>' + periodLabel + '</td>' +
-                    '<td>' + opList + '</td>' +
-                    '<td>' + a.name + '</td>' +
-                    '<td>' + a.spec + '</td>' +
-                    '<td>' + a.unit + '</td>' +
-                    '<td>' + a.qty + '</td>' +
-                    '<td>' + noteStr + '</td>';
+                tr.innerHTML = '<td>' + escapeHTML(periodLabel) + '</td>' +
+                    '<td>' + escapeHTML(opList) + '</td>' +
+                    '<td>' + escapeHTML(a.name) + '</td>' +
+                    '<td>' + escapeHTML(a.spec) + '</td>' +
+                    '<td>' + escapeHTML(a.unit) + '</td>' +
+                    '<td>' + escapeHTML(String(a.qty)) + '</td>' +
+                    '<td>' + escapeHTML(noteStr) + '</td>';
                 tbody.appendChild(tr);
             });
 
@@ -1976,21 +2028,21 @@ function saveAllData() {
         warehousePassword: warehousePassword
     };
     try {
-        localStorage.setItem('warehouse-data', JSON.stringify(saveData));
+        localStorage.setItem('warehouse-data-new', JSON.stringify(saveData));
         if (!_gistLoading) { saveToGist(); }
-        else { localStorage.setItem('gist-pending-sync', 'true'); }
+        else { localStorage.setItem('gist-pending-sync-new', 'true'); }
         return true;
     } catch (e) {
         console.warn('saveAllData: localStorage 写入失败 (' + e.name + ')', e.message);
         // 配额满：尝试清理备份数据后重试
         try {
-            var backups = JSON.parse(localStorage.getItem('warehouse-auto-backups') || '[]');
+            var backups = JSON.parse(localStorage.getItem('warehouse-auto-backups-new') || '[]');
             if (backups.length > 0) {
                 while (backups.length > 2) { backups.shift(); }
-                localStorage.setItem('warehouse-auto-backups', JSON.stringify(backups));
-                localStorage.setItem('warehouse-data', JSON.stringify(saveData));
+                localStorage.setItem('warehouse-auto-backups-new', JSON.stringify(backups));
+                localStorage.setItem('warehouse-data-new', JSON.stringify(saveData));
                 if (!_gistLoading) { saveToGist(); }
-                else { localStorage.setItem('gist-pending-sync', 'true'); }
+                else { localStorage.setItem('gist-pending-sync-new', 'true'); }
                 return true;
             }
         } catch (e2) {}
@@ -2001,7 +2053,7 @@ function saveAllData() {
 function clearAllData() {
     const t = translations[currentLang];
     showPasswordModal(function() {
-        localStorage.removeItem('warehouse-data');
+        localStorage.removeItem('warehouse-data-new');
         inventory = [];
         inboundHistory = [];
         outboundHistory = [];
@@ -2029,7 +2081,9 @@ function showPasswordModal(onSuccess) {
     input.focus();
 
     function doVerify() {
-        if (input.value === warehousePassword) {
+        // 安全：直接从 localStorage 读最新密码
+        var currentPwd = localStorage.getItem('warehousePassword-new') || 'admin123';
+        if (input.value === currentPwd) {
             overlay.classList.remove('show');
             if (onSuccess) onSuccess();
         } else {
@@ -2072,7 +2126,7 @@ function showSetPasswordModal() {
             return;
         }
         warehousePassword = newPwd;
-        localStorage.setItem('warehousePassword', newPwd);
+        localStorage.setItem('warehousePassword-new', newPwd);
         overlay.classList.remove('show');
         showAlert('success', t.passwordSaved, 'log');
     }
@@ -2202,16 +2256,24 @@ function handleInsertSubmit() {
     }
     if (insertIndex < 0) insertIndex = inventory.length;
 
-    // 先保存旧状态用于回滚
+    // 先 splice 再保存：若 splice 后保存失败，已插入项会随刷新回到原状态
+    // （inventory 仍在内存中可重试；只有 saveAllData 真的成功才能确保持久化）
+    inventory.splice(insertIndex, 0, newItem);
     var saved = saveAllData();
-    // splice 操作需放在 saveAllData 之后：若 saveAllData 失败则不污染 inventory
     if (!saved) {
-        // 尝试清理 localStorage 中可能已满的备份数据后重试
+        // 回滚 splice
+        var rollbackIdx = inventory.indexOf(newItem);
+        if (rollbackIdx !== -1) inventory.splice(rollbackIdx, 1);
         try {
-            var backups = JSON.parse(localStorage.getItem('warehouse-auto-backups') || '[]');
+            var backups = JSON.parse(localStorage.getItem('warehouse-auto-backups-new') || '[]');
             while (backups.length > 5) { backups.shift(); }
-            localStorage.setItem('warehouse-auto-backups', JSON.stringify(backups));
+            localStorage.setItem('warehouse-auto-backups-new', JSON.stringify(backups));
+            inventory.splice(insertIndex, 0, newItem);
             saved = saveAllData();
+            if (!saved) {
+                var rollbackIdx2 = inventory.indexOf(newItem);
+                if (rollbackIdx2 !== -1) inventory.splice(rollbackIdx2, 1);
+            }
         } catch(e) {}
     }
     if (!saved) {
@@ -2221,13 +2283,13 @@ function handleInsertSubmit() {
         return;
     }
 
-    inventory.splice(insertIndex, 0, newItem);
-    saveAllData();
     closeInsertModal();
     addLog(t.logTypeInsertItem, code, '+' + initStock, currentLang === 'zh'
         ? '新增物料: ' + name : 'Добавлен материал: ' + name);
     refreshAll();
     showAlert('success', t.insertSuccess + ': ' + name, 'summary');
+    // 网页版：立即推送
+    if (window.IS_WEB_MODE) saveToGist(true);
 }
 
 // ========== 删除物料 ==========
@@ -2284,17 +2346,17 @@ function performAutoBackup() {
     // 存入 localStorage 备份快照
     var backups = [];
     try {
-        backups = JSON.parse(localStorage.getItem('warehouse-auto-backups') || '[]');
+        backups = JSON.parse(localStorage.getItem('warehouse-auto-backups-new') || '[]');
     } catch(e) { backups = []; }
     backups.push({ time: ts, data: data });
     // 只保留最近 10 个备份
     if (backups.length > 10) backups = backups.slice(backups.length - 10);
     try {
-        localStorage.setItem('warehouse-auto-backups', JSON.stringify(backups));
+        localStorage.setItem('warehouse-auto-backups-new', JSON.stringify(backups));
     } catch(e) {
         // localStorage 满时清理最旧的备份后重试
         while (backups.length > 4) { backups.shift(); }
-        try { localStorage.setItem('warehouse-auto-backups', JSON.stringify(backups)); } catch(e2) {}
+        try { localStorage.setItem('warehouse-auto-backups-new', JSON.stringify(backups)); } catch(e2) {}
     }
     addLog(currentLang === 'zh' ? '自动备份' : 'Авто-резерв', '-', '-', currentLang === 'zh' ? '自动备份完成' : 'Авто-резервное копирование завершено');
     saveAllData();
@@ -2320,9 +2382,9 @@ function syncUnitBilingual() {
 }
 
 function loadAllData() {
-    var raw = localStorage.getItem('warehouse-data');
+    var raw = localStorage.getItem('warehouse-data-new');
     // fallback: 兼容 Gist 中可能使用 warehouse-records 键名的情况
-    if (!raw) raw = localStorage.getItem('warehouse-records');
+    if (!raw) raw = localStorage.getItem('warehouse-records-new');
     if (raw) {
         try {
             const data = JSON.parse(raw);
@@ -2332,7 +2394,8 @@ function loadAllData() {
             outboundHistory = data.outboundHistory || [];
             operationLogs = data.operationLogs || [];
             dataVersion = data.dataVersion || 0;
-            if (data.warehousePassword) warehousePassword = data.warehousePassword;
+            // 不再从 data.warehousePassword 覆盖变量。密码只通过独立的
+            // warehousePassword-new 这个 key 管理，避免 Gist 同步把过期密码拉回来
             if (inventory.length === 0) return false;
             // 兼容旧数据：无 source 字段默认 "cn"
             for (var _ldi = 0; _ldi < inventory.length; _ldi++) {
@@ -2355,9 +2418,9 @@ function initSampleData() {
                 "name": "电视广告机 Телевизор маленький",
                 "spec": "24寸",
                 "unit": "台 / шт.",
-                "stock": 6,
-                "safeStock": 2,
-                "initialStock": 6,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2370,9 +2433,9 @@ function initSampleData() {
                 "name": "电视广告机 Рекламный телевизор средний",
                 "spec": "55寸",
                 "unit": "台 / шт.",
-                "stock": 6,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 6,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2385,9 +2448,9 @@ function initSampleData() {
                 "name": "电视广告机 Рекламный телевизор большой",
                 "spec": "50寸",
                 "unit": "台 / шт.",
-                "stock": 2,
-                "safeStock": 2,
-                "initialStock": 2,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2400,9 +2463,9 @@ function initSampleData() {
                 "name": "电视广告机 Рекламный телевизор большой",
                 "spec": "43寸",
                 "unit": "台 / шт.",
-                "stock": 3,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 3,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2415,13 +2478,12 @@ function initSampleData() {
                 "name": "自动奶茶机 Аппарат автомат. для приготовления чая",
                 "spec": "YZ-180",
                 "unit": "台 / шт.",
-                "stock": 14,
-                "safeStock": 2,
-                "initialStock": 14,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2431,13 +2493,12 @@ function initSampleData() {
                 "name": "自动奶茶机 Аппарат автомат. для приготовления чая",
                 "spec": "ZX-180",
                 "unit": "台 / шт.",
-                "stock": 3,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 3,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2447,9 +2508,9 @@ function initSampleData() {
                 "name": "不锈钢操作台 Нержавеющая рабочая поверхность",
                 "spec": "1800*800*800",
                 "unit": "台 / шт.",
-                "stock": 13,
-                "safeStock": 2,
-                "initialStock": 13,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2462,9 +2523,9 @@ function initSampleData() {
                 "name": "不锈钢操作台 Нержавеющая рабочая поверхность",
                 "spec": "1500*800*800",
                 "unit": "台 / шт.",
-                "stock": 2,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 2,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2477,9 +2538,9 @@ function initSampleData() {
                 "name": "不锈钢操作台 Нержавеющая рабочая поверхность",
                 "spec": "1200*800*900",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2492,13 +2553,12 @@ function initSampleData() {
                 "name": "不锈钢操作台 Нержавеющая рабочая поверхность",
                 "spec": "1200*800*900",
                 "unit": "台 / шт.",
-                "stock": 2,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 2,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2508,13 +2568,12 @@ function initSampleData() {
                 "name": "卧式冷藏冰箱 Камера холодильная",
                 "spec": "CUR-1270-L2FV",
                 "unit": "台 / шт.",
-                "stock": 8,
-                "safeStock": 2,
-                "initialStock": 8,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2524,13 +2583,12 @@ function initSampleData() {
                 "name": "卧式冷冻冰箱 Камера морозильная",
                 "spec": "CUF-1270-L2FV",
                 "unit": "台 / шт.",
-                "stock": 19,
-                "safeStock": 2,
-                "initialStock": 19,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2540,13 +2598,12 @@ function initSampleData() {
                 "name": "卧式冷藏冰箱 Камера холодильная",
                 "spec": "CUR-1570-L2FV",
                 "unit": "台 / шт.",
-                "stock": 2,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 2,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2556,13 +2613,12 @@ function initSampleData() {
                 "name": "卧式冷冻冰箱 Камера морозильная",
                 "spec": "CUF-1570-L2FV",
                 "unit": "台 / шт.",
-                "stock": 2,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 2,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2572,13 +2628,12 @@ function initSampleData() {
                 "name": "卧式冷冻冰箱 Камера морозильная",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 3,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 3,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2588,13 +2643,12 @@ function initSampleData() {
                 "name": "制冰机 Льдогенератор",
                 "spec": "CL-1000",
                 "unit": "台 / шт.",
-                "stock": 14,
-                "safeStock": 3,
-                "initialStock": 14,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2604,13 +2658,12 @@ function initSampleData() {
                 "name": "制冰机 Льдогенератор",
                 "spec": "GM-300A",
                 "unit": "台 / шт.",
-                "stock": 22,
-                "safeStock": 2,
-                "initialStock": 22,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2620,13 +2673,12 @@ function initSampleData() {
                 "name": "开水机 Аппарат для заваривания кипятка",
                 "spec": "HZ-40Z3-3SR",
                 "unit": "台 / шт.",
-                "stock": 19,
-                "safeStock": 2,
-                "initialStock": 19,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2636,13 +2688,12 @@ function initSampleData() {
                 "name": "蒸汽机 Машина паровая",
                 "spec": "HZ-4ZQ-2.5DWBWF",
                 "unit": "台 / шт.",
-                "stock": 18,
-                "safeStock": 2,
-                "initialStock": 18,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2652,9 +2703,9 @@ function initSampleData() {
                 "name": "冰沙机 Блендер",
                 "spec": "Q9",
                 "unit": "台 / шт.",
-                "stock": 27,
-                "safeStock": 4,
-                "initialStock": 27,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2667,9 +2718,9 @@ function initSampleData() {
                 "name": "封口机  Машина для запечатывания стаканов пленкой",
                 "spec": "NDF-FYW",
                 "unit": "台 / шт.",
-                "stock": 22,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 22,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2682,13 +2733,12 @@ function initSampleData() {
                 "name": "自动泡茶机Автоматическая чайная машина",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 2,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 2,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2698,9 +2748,9 @@ function initSampleData() {
                 "name": "珍珠锅 Мультиварка",
                 "spec": "BLT-6L",
                 "unit": "台 / шт.",
-                "stock": 30,
-                "safeStock": 2,
-                "initialStock": 30,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2713,9 +2763,9 @@ function initSampleData() {
                 "name": "珍珠锅 Мультиварка",
                 "spec": "BLT-16L",
                 "unit": "台 / шт.",
-                "stock": 9,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 9,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2728,13 +2778,12 @@ function initSampleData() {
                 "name": "不锈钢保温锅Нержавеющий термос-котел",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 13,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 13,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2744,9 +2793,9 @@ function initSampleData() {
                 "name": "切片机 Ломтерезка",
                 "spec": "1039AX",
                 "unit": "台 / шт.",
-                "stock": 1,
-                "safeStock": 2,
-                "initialStock": 1,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2759,9 +2808,9 @@ function initSampleData() {
                 "name": "打发器 Миксер с венчиками",
                 "spec": "-",
                 "unit": "台 / шт.",
-                "stock": 12,
-                "safeStock": 3,
-                "initialStock": 12,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2774,9 +2823,9 @@ function initSampleData() {
                 "name": "垃圾桶 Ведро мусорное 310/820",
                 "spec": "-",
                 "unit": "台 / шт.",
-                "stock": 11,
-                "safeStock": 2,
-                "initialStock": 11,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2789,9 +2838,9 @@ function initSampleData() {
                 "name": "吧台收纳盒套装 Набор для бара 6 секций",
                 "spec": "不锈钢材质Материал: нержавеющая сталь",
                 "unit": "台 / шт.",
-                "stock": 3,
-                "safeStock": 1,
-                "initialStock": 3,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2804,9 +2853,9 @@ function initSampleData() {
                 "name": "吧台收纳盒套装 Набор для бара 6 секций",
                 "spec": "塑料材质Пластиковый материал",
                 "unit": "台 / шт.",
-                "stock": 2,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 2,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -2819,13 +2868,12 @@ function initSampleData() {
                 "name": "货架Стеллаж",
                 "spec": "2000/1500/1200*550*2500",
                 "unit": "台 / шт.",
-                "stock": 44,
-                "safeStock": 4,
-                "initialStock": 44,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2835,13 +2883,12 @@ function initSampleData() {
                 "name": "污水提升泵Станция для подъема сточных вод",
                 "spec": "扬尘7M",
                 "unit": "台 / шт.",
-                "stock": 3,
-                "safeStock": 3,
-                "initialStock": 3,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2851,13 +2898,12 @@ function initSampleData() {
                 "name": "不锈钢卡座  Скамья для сидения",
                 "spec": "1200*450*450",
                 "unit": "台 / шт.",
-                "stock": 12,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 12,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2867,13 +2913,12 @@ function initSampleData() {
                 "name": "不锈钢卡座  Скамья для сидения",
                 "spec": "450*450*450",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2883,13 +2928,12 @@ function initSampleData() {
                 "name": "不锈钢桌子  Стол из нержавеющей стали",
                 "spec": "740*500",
                 "unit": "台 / шт.",
-                "stock": 8,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 8,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2899,13 +2943,12 @@ function initSampleData() {
                 "name": "杯子雕塑 скульптура чашки",
                 "spec": "1800*1200",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2915,13 +2958,12 @@ function initSampleData() {
                 "name": "兔子雕塑Скульптура зайца",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 2,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 2,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2931,13 +2973,12 @@ function initSampleData() {
                 "name": "烤箱Духовой шкаф",
                 "spec": "1340*1020*1680",
                 "unit": "台 / шт.",
-                "stock": 3,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 3,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2947,13 +2988,12 @@ function initSampleData() {
                 "name": "烤箱Духовой шкаф",
                 "spec": "1230*860*555",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2963,13 +3003,12 @@ function initSampleData() {
                 "name": "搅拌机Блендер",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 2,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 2,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2979,13 +3018,12 @@ function initSampleData() {
                 "name": "电饼档Электрический сковорода",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -2995,13 +3033,12 @@ function initSampleData() {
                 "name": "油炸锅Фритюрница",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3011,13 +3048,12 @@ function initSampleData() {
                 "name": "发酵柜Парник для теста",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3027,13 +3063,12 @@ function initSampleData() {
                 "name": "不锈钢保温炉Термошкаф из нержавеющей стали",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3043,13 +3078,12 @@ function initSampleData() {
                 "name": "蛋糕柜Тортовой шкаф",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3059,13 +3093,12 @@ function initSampleData() {
                 "name": "切菜机профессиональная овощерезка",
                 "spec": "",
                 "unit": "台 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3090,13 +3123,12 @@ function initSampleData() {
                 "name": "冰铲 Совок для льда бол для льдогенератора",
                 "spec": "大号",
                 "unit": "个 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3122,12 +3154,11 @@ function initSampleData() {
                 "spec": "大号",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3137,9 +3168,9 @@ function initSampleData() {
                 "name": "黄色小冰勺 Совок для льда желт. 350 мл.",
                 "spec": "12oz, 9*10*6",
                 "unit": "个 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3152,9 +3183,9 @@ function initSampleData() {
                 "name": "棕色大冰勺 Совок для льда коричн. 590 мл.",
                 "spec": "20.3oz, 9*11*6",
                 "unit": "个 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3167,9 +3198,9 @@ function initSampleData() {
                 "name": "水果夹 Щипцы для фруктов 19*2 см.",
                 "spec": "18cm, 19*2",
                 "unit": "个 / шт.",
-                "stock": 5,
-                "safeStock": 2,
-                "initialStock": 5,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3182,13 +3213,12 @@ function initSampleData() {
                 "name": "黑色食品夹 Щипцы пищевые 27*3.5",
                 "spec": "27cm, 27*3.5",
                 "unit": "个 / шт.",
-                "stock": 2,
-                "safeStock": 3,
-                "initialStock": 2,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3198,9 +3228,9 @@ function initSampleData() {
                 "name": "不锈钢吧勺 Ложка коктейльная нержав.",
                 "spec": "32cm, 32*2",
                 "unit": "个 / шт.",
-                "stock": 5,
-                "safeStock": 3,
-                "initialStock": 5,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3213,9 +3243,9 @@ function initSampleData() {
                 "name": "4#果粉勺 Ложка №4 пласт.",
                 "spec": "18g, 21.5*4",
                 "unit": "个 / шт.",
-                "stock": 6,
-                "safeStock": 3,
-                "initialStock": 6,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3228,13 +3258,12 @@ function initSampleData() {
                 "name": "7#大勺 Ложка №7 бол.",
                 "spec": "7cm, 7cm*21.5cm",
                 "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3244,9 +3273,9 @@ function initSampleData() {
                 "name": "5#漏勺 Ложка-ситечко №5",
                 "spec": "50g, 21*5",
                 "unit": "个 / шт.",
-                "stock": 6,
-                "safeStock": 3,
-                "initialStock": 6,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3259,9 +3288,9 @@ function initSampleData() {
                 "name": "宽口径挤压瓶 Бутылка-соусник квадрат.",
                 "spec": "1000ML, 7.5*21",
                 "unit": "个 / шт.",
-                "stock": 4,
-                "safeStock": 3,
-                "initialStock": 4,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3275,12 +3304,11 @@ function initSampleData() {
                 "spec": "1000ML, 7.8*29",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3290,13 +3318,12 @@ function initSampleData() {
                 "name": "按压式挤压瓶 Дозатор 10 мл.",
                 "spec": "10ML, 110*280",
                 "unit": "个 / шт.",
-                "stock": 4,
-                "safeStock": 3,
-                "initialStock": 4,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3307,12 +3334,11 @@ function initSampleData() {
                 "spec": "300ML",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3323,12 +3349,11 @@ function initSampleData() {
                 "spec": "300ML",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3338,9 +3363,9 @@ function initSampleData() {
                 "name": "200ml量杯 Стакан мерный пласт. 200 мл.",
                 "spec": "-, 8.5*11.5",
                 "unit": "个 / шт.",
-                "stock": 6,
-                "safeStock": 3,
-                "initialStock": 6,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3354,12 +3379,11 @@ function initSampleData() {
                 "spec": "-, 13.5*29",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3369,13 +3393,13 @@ function initSampleData() {
                 "name": "2500ml量桶 Кувшин 2.5 л.",
                 "spec": "-, 13.5*24.5",
                 "unit": "个 / шт.",
-                "stock": 8,
-                "safeStock": 3,
-                "initialStock": 8,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "source": "ru",
+                "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
         },
@@ -3384,13 +3408,13 @@ function initSampleData() {
                 "name": "5000ml量桶 Кувшин 5 л.",
                 "spec": "-, 28.5*26.5",
                 "unit": "个 / шт.",
-                "stock": 6,
-                "safeStock": 3,
-                "initialStock": 6,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "source": "ru",
+                "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
         },
@@ -3399,9 +3423,9 @@ function initSampleData() {
                 "name": "1. 3 00мл/ 2700мл/ шейкер",
                 "spec": "-, 5.6*20",
                 "unit": "个 / шт.",
-                "stock": 5,
-                "safeStock": 3,
-                "initialStock": 5,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3414,9 +3438,9 @@ function initSampleData() {
                 "name": "1. 700мл 2. 1000мл/ шейкер",
                 "spec": "-, 5.6*28.5",
                 "unit": "个 / шт.",
-                "stock": 5,
-                "safeStock": 3,
-                "initialStock": 5,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3429,13 +3453,12 @@ function initSampleData() {
                 "name": "奶昔杯 Стакан для миксера 650 мл.",
                 "spec": "-, 6.5*10*17.5",
                 "unit": "个 / шт.",
-                "stock": 2,
-                "safeStock": 3,
-                "initialStock": 2,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3445,13 +3468,12 @@ function initSampleData() {
                 "name": "1/6透明份数盆（15cm） Контейнер 1/6 прозрачный без крышки 2л.  (15 см)",
                 "spec": "-",
                 "unit": "个 / шт.",
-                "stock": 6,
-                "safeStock": 3,
-                "initialStock": 6,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3461,13 +3483,12 @@ function initSampleData() {
                 "name": "1/6透明份数盆（10cm） Контейнер 1/6  прозрачный без крышки 1.4 л.  (10 см)",
                 "spec": "-",
                 "unit": "个 / шт.",
-                "stock": 6,
-                "safeStock": 3,
-                "initialStock": 6,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3477,13 +3498,12 @@ function initSampleData() {
                 "name": "1/6透明份数盖 Крышка для контейнера 1/6",
                 "spec": "翻口",
                 "unit": "个 / шт.",
-                "stock": 12,
-                "safeStock": 3,
-                "initialStock": 12,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3493,13 +3513,12 @@ function initSampleData() {
                 "name": "1/9透明份数盆（10cm） Контейнер 1/9  прозрачный без крышки 0.9 л. (10 см)",
                 "spec": "-",
                 "unit": "个 / шт.",
-                "stock": 4,
-                "safeStock": 3,
-                "initialStock": 4,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3509,13 +3528,12 @@ function initSampleData() {
                 "name": "1/9透明份数盖 Крышка для контейнера 1/9",
                 "spec": "-",
                 "unit": "个 / шт.",
-                "stock": 4,
-                "safeStock": 3,
-                "initialStock": 4,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3525,13 +3543,12 @@ function initSampleData() {
                 "name": "奶盖专用不锈钢盆  Миска для взбивания нержав. 29.5 см.",
                 "spec": "-, 16*29.5",
                 "unit": "个 / шт.",
-                "stock": 2,
-                "safeStock": 3,
-                "initialStock": 2,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3541,9 +3558,9 @@ function initSampleData() {
                 "name": "计时器 Таймер",
                 "spec": "白色",
                 "unit": "个 / шт.",
-                "stock": 5,
-                "safeStock": 3,
-                "initialStock": 5,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3556,9 +3573,9 @@ function initSampleData() {
                 "name": "茶叶过滤网 Сито чай",
                 "spec": "300 目",
                 "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3571,9 +3588,9 @@ function initSampleData() {
                 "name": "过滤网 Сито",
                 "spec": "19cm",
                 "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3586,9 +3603,9 @@ function initSampleData() {
                 "name": "珍珠滤盆 Дуршлаг для тапиоки 37.5 см.",
                 "spec": "37.5cm",
                 "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3601,9 +3618,9 @@ function initSampleData() {
                 "name": "电子称 Весы электронные",
                 "spec": "-",
                 "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3616,9 +3633,9 @@ function initSampleData() {
                 "name": "耐高温刮刀 Лопатка силикон. 7.2*35.5",
                 "spec": "14寸, 35.5cm*7.2cm",
                 "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3631,9 +3648,9 @@ function initSampleData() {
                 "name": "不锈钢捣棒 Мадлер 4*29.5",
                 "spec": "-, 29.5cm*4cm",
                 "unit": "个 / шт.",
-                "stock": 2,
-                "safeStock": 3,
-                "initialStock": 2,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3646,9 +3663,9 @@ function initSampleData() {
                 "name": "MOSA PRO不锈钢奶油枪（0.5L） Сифон (0.5 л.)",
                 "spec": "500ml",
                 "unit": "个 / шт.",
-                "stock": 2,
-                "safeStock": 3,
-                "initialStock": 2,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3661,9 +3678,9 @@ function initSampleData() {
                 "name": "MOSA PRO不锈钢奶油枪（1L） Сифон (1 л.)",
                 "spec": "1000ml",
                 "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3676,9 +3693,9 @@ function initSampleData() {
                 "name": "气弹 Балончик для сифона (1 кор./10шт.)",
                 "spec": "10 个/盒",
                 "unit": "个 / шт.",
-                "stock": 20,
-                "safeStock": 3,
-                "initialStock": 20,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3690,45 +3707,13 @@ function initSampleData() {
                 "code": "PJ041",
                 "name": "保鲜膜 Пленка пищевая",
                 "spec": "-",
-                "unit": "个 / шт.",
+                "unit": "卷",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "source": "ru",
-                "_cumIn": 0,
-                "_cumOut": 0
-        },
-        {
-                "code": "PJ042",
-                "name": "收银票纸 Лента кассовая",
-                "spec": "80*80",
-                "unit": "个 / шт.",
-                "stock": 0,
-                "safeStock": 3,
-                "initialStock": 0,
-                "supplier": "",
-                "expireDate": "",
-                "prodDate": "",
-                "image": "",
-                "source": "ru",
-                "_cumIn": 0,
-                "_cumOut": 0
-        },
-        {
-                "code": "PJ043",
-                "name": "杯贴纸 Наклейки для стаканов",
-                "spec": "60*58",
-                "unit": "个 / шт.",
-                "stock": 0,
-                "safeStock": 3,
-                "initialStock": 0,
-                "supplier": "",
-                "expireDate": "",
-                "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3738,9 +3723,9 @@ function initSampleData() {
                 "name": "展架 Витрина с тентом уличная",
                 "spec": "1600*600*2000",
                 "unit": "个 / шт.",
-                "stock": 5,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 5,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3753,9 +3738,9 @@ function initSampleData() {
                 "name": "吧台收纳盒套装 Набор для бара 6 секций",
                 "spec": "七件套",
                 "unit": "个 / шт.",
-                "stock": 1,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 1,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3768,13 +3753,12 @@ function initSampleData() {
                 "name": "杯子收纳架",
                 "spec": "",
                 "unit": "个 / шт.",
-                "stock": 5,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 5,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3784,13 +3768,12 @@ function initSampleData() {
                 "name": "急救包套装 Аптечка для первой медицинской помощи",
                 "spec": "",
                 "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -3801,13 +3784,12 @@ function initSampleData() {
                 "spec": "",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
-                "source": "ru",
+                "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
         },
@@ -3816,9 +3798,9 @@ function initSampleData() {
                 "name": "灰色抹布 серая тряпка",
                 "spec": "-, 290*290",
                 "unit": "个 / шт.",
-                "stock": 5,
-                "safeStock": 3,
-                "initialStock": 5,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3831,9 +3813,9 @@ function initSampleData() {
                 "name": "棕色抹布 Коричневая тряпка",
                 "spec": "-, 290*290",
                 "unit": "个 / шт.",
-                "stock": 5,
-                "safeStock": 3,
-                "initialStock": 5,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3846,9 +3828,9 @@ function initSampleData() {
                 "name": "蓝色抹布 синяя тряпка",
                 "spec": "-, 290*290",
                 "unit": "个 / шт.",
-                "stock": 5,
-                "safeStock": 3,
-                "initialStock": 5,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3860,10 +3842,10 @@ function initSampleData() {
                 "code": "PJ052",
                 "name": "洗手液  Мыло жидкое для рук",
                 "spec": "500ml",
-                "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "unit": "瓶 / бут.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3875,10 +3857,10 @@ function initSampleData() {
                 "code": "PJ053",
                 "name": "植澈消毒片  Таблетки дезинфицирующие",
                 "spec": "50 片/瓶 50 штук / бутылка",
-                "unit": "个 / шт.",
-                "stock": 2,
-                "safeStock": 3,
-                "initialStock": 2,
+                "unit": "袋",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3890,10 +3872,10 @@ function initSampleData() {
                 "code": "PJ054",
                 "name": "茶垢清洁剂 Средство для удаления чайного налета",
                 "spec": "400 g/瓶 400 г / бутылка",
-                "unit": "个 / шт.",
-                "stock": 2,
-                "safeStock": 3,
-                "initialStock": 2,
+                "unit": "袋",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3905,10 +3887,10 @@ function initSampleData() {
                 "code": "PJ055",
                 "name": "茶垢清洁剂 Средство для удаления чайного налета",
                 "spec": "1kg/瓶 1 кг / бутылка",
-                "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "unit": "瓶 / бут.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3920,14 +3902,179 @@ function initSampleData() {
                 "code": "PJ056",
                 "name": "洗洁精 Средство для мытья посуды",
                 "spec": "1kg/瓶 1 кг / бутылка",
-                "unit": "个 / шт.",
-                "stock": 1,
-                "safeStock": 3,
-                "initialStock": 1,
+                "unit": "瓶 / бут.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
                 "source": "ru",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ057",
+                "name": "充电宝Пауэрбанк",
+                "spec": "",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ058",
+                "name": "保温杯Термос",
+                "spec": "",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ059",
+                "name": "礼品布袋Подарочные тканевые сумки",
+                "spec": "",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ060",
+                "name": "杯子标签贴Наклейки на стаканы",
+                "spec": "",
+                "unit": "个/шт",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ061",
+                "name": "收银机打印纸Бумага для кассового аппарата",
+                "spec": "",
+                "unit": "个/шт",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ062",
+                "name": "橙色短袖Оранжевая футболкаXL",
+                "spec": "XL",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ062-1",
+                "name": ".橙色短袖Оранжевая футболка2XL",
+                "spec": "2XL",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ062-2",
+                "name": "橙色短袖Оранжевая футболка3XL",
+                "spec": "3XL",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ063",
+                "name": "黑色短袖Черная футболка2XL",
+                "spec": "2XL",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ063-1",
+                "name": "黑色短袖Черная футболка5XL",
+                "spec": "5XL",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "PJ064",
+                "name": "铁抹布Металлическая мочалка",
+                "spec": "",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
         },
@@ -3937,7 +4084,7 @@ function initSampleData() {
                 "spec": "700ml90 口径, 25个*20条/箱  25 штук * 20 полосок/коробка 500 个/箱/коробка",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 20000,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -3951,9 +4098,9 @@ function initSampleData() {
                 "name": "白色纸杯 Белый бумажный стакан.",
                 "spec": "500ml, 25个*20条/箱  25 штук * 20 полосок/коробка 500 个/箱/коробка",
                 "unit": "个 / шт.",
-                "stock": 37500,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 37500,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3963,12 +4110,12 @@ function initSampleData() {
         },
         {
                 "code": "BC003",
-                "name": "白色纸杯 Белый бумажный стакан.",
+                "name": "橙色纸杯 Белый бумажный стакан.",
                 "spec": "700ml, 25个*20条/箱  25 штук * 20 полосок/коробка 500 个/箱/коробка",
                 "unit": "个 / шт.",
-                "stock": 28500,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 28500,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3981,9 +4128,9 @@ function initSampleData() {
                 "name": "透明冰杯 Стакан прозрачный пластик.",
                 "spec": "500ml98口径, 50个*20条/箱 50 штук * 20 полосок/коробка 1000 个/箱/коробка",
                 "unit": "个 / шт.",
-                "stock": 10000,
-                "safeStock": 20000,
-                "initialStock": 10000,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -3996,13 +4143,12 @@ function initSampleData() {
                 "name": "粗吸管 Соломинка пластиковая",
                 "spec": "23cm/1*1cm口径, 100 根/*25包/箱 100 штук / 25 пакетов/коробка 2500 штук/коробка/",
                 "unit": "个 / шт.",
-                "stock": 32500,
-                "safeStock": 20000,
-                "initialStock": 32500,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4012,13 +4158,12 @@ function initSampleData() {
                 "name": "黑色盖子 Чёрная крышка.",
                 "spec": "90口径, 50个*20条/箱 50 штук * 20 полосок/коробка 1000 个/箱/коробка",
                 "unit": "个 / шт.",
-                "stock": 8000,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 8000,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4028,13 +4173,12 @@ function initSampleData() {
                 "name": "白色连体盖 Крышка для стаканов белая 90мм.",
                 "spec": "90 口径, 50个*20条/箱 50 штук * 20 полосок/коробка 1000 个/箱/коробка",
                 "unit": "个 / шт.",
-                "stock": 34000,
-                "safeStock": 20000,
-                "initialStock": 34000,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4044,13 +4188,12 @@ function initSampleData() {
                 "name": "半球盖 Крышка прозрачная для  стаканов 98 мм.",
                 "spec": "98口径, 50个*20条/箱 50 штук * 20 полосок/коробка 1000 个/箱/коробка",
                 "unit": "个 / шт.",
-                "stock": 9000,
-                "safeStock": 20000,
-                "initialStock": 9000,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4060,13 +4203,12 @@ function initSampleData() {
                 "name": "单杯杯托 Держатель для стаканов одинарный",
                 "spec": "单杯, 50个*20条/箱 50 штук * 20 полосок/коробка 1000 个/箱/коробка",
                 "unit": "个 / шт.",
-                "stock": 28000,
-                "safeStock": 10000,
-                "initialStock": 28000,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4076,13 +4218,12 @@ function initSampleData() {
                 "name": "双杯杯托 Держатель для стаканов двойной",
                 "spec": "双杯, 20个*25条/箱 20шт*25полосок/каробка 500шт / коробка",
                 "unit": "个 / шт.",
-                "stock": 53500,
-                "safeStock": 10000,
-                "initialStock": 53500,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4092,13 +4233,12 @@ function initSampleData() {
                 "name": "单杯纸袋 Одинарный бумажный пакет",
                 "spec": "单杯, 25个*40条/箱 25шт*40 полосок/коробка 1000 шт / коробка",
                 "unit": "个 / шт.",
-                "stock": 14000,
-                "safeStock": 10000,
-                "initialStock": 14000,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4108,13 +4248,12 @@ function initSampleData() {
                 "name": "双杯纸袋 Двойной бумажный пакет",
                 "spec": "双杯, 50个*10 条/箱 50шт*10 полосок/коробка 500шт / коробка",
                 "unit": "个 / шт.",
-                "stock": 45000,
-                "safeStock": 10000,
-                "initialStock": 45000,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4130,7 +4269,6 @@ function initSampleData() {
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4141,7 +4279,7 @@ function initSampleData() {
                 "spec": "-, 100 个/包 100 штук / упаковка",
                 "unit": "包 / упак.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4156,7 +4294,7 @@ function initSampleData() {
                 "spec": "-, -",
                 "unit": "包 / упак.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4170,9 +4308,69 @@ function initSampleData() {
                 "name": "试饮杯 Стакан бумажный для дегустации",
                 "spec": "50ml, 50个*20条/箱 50 штук * 20 полосок/коробка",
                 "unit": "个 / шт.",
-                "stock": 8000,
-                "safeStock": 2000,
-                "initialStock": 8000,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "BC018",
+                "name": "咖啡杯Кофе стаканы",
+                "spec": "",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "ru",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "BC019",
+                "name": "咖啡双杯托Держатель на два стакана",
+                "spec": "",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "ru",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "BC020",
+                "name": "520ml奶茶杯Стакан для чая с молоком 520 мл",
+                "spec": "",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "BC021",
+                "name": "90新中式茶杯盖Крышка 90 мм, новокитайский стиль для чайных кружек",
+                "spec": "",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
@@ -4185,81 +4383,75 @@ function initSampleData() {
                 "name": "白桃乌龙茶 Чай персиковый",
                 "spec": "500g*30 包/箱 504гр*30пакетов/коробка",
                 "unit": "千克 / кг",
-                "stock": 115,
-                "safeStock": 100,
-                "initialStock": 115,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2026-12-09",
                 "prodDate": "2025-06-18",
                 "source": "cn",
                 "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 540
+                "_cumOut": 0
         },
         {
                 "code": "SC002-Z",
                 "name": "红茶 Чай черный",
                 "spec": "500g*30 包/箱 504гр*30пакетов/коробка",
                 "unit": "千克 / кг",
-                "stock": 21,
-                "safeStock": 100,
-                "initialStock": 21,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2026-09-08",
                 "prodDate": "2025-03-18",
                 "source": "cn",
                 "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 540
+                "_cumOut": 0
         },
         {
                 "code": "SC003-Z",
                 "name": "绿茶 Чай зеленый",
                 "spec": "500g*30 包/箱 504гр*30пакетов/коробка",
                 "unit": "千克 / кг",
-                "stock": 74,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 74,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2026-09-08",
                 "prodDate": "2025-03-18",
-                "image": "",
                 "source": "cn",
                 "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 540
+                "_cumOut": 0
         },
         {
                 "code": "SC004-Z",
                 "name": "茉莉花茶 Чай жасминовый",
                 "spec": "500g*30 包/箱 504гр*30пакетов/коробка",
                 "unit": "千克 / кг",
-                "stock": 226,
-                "safeStock": 100,
-                "initialStock": 226,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2026-09-08",
                 "prodDate": "2025-03-18",
                 "source": "cn",
                 "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 540
+                "_cumOut": 0
         },
         {
                 "code": "SC007-Z",
                 "name": "原味红糖 Сахар коричневый",
                 "spec": "300g*60包/箱 300 г * 60 пакетов в коробке",
                 "unit": "千克 / кг",
-                "stock": 167,
-                "safeStock": 100,
-                "initialStock": 167,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2027-03-23",
                 "prodDate": "2025-09-30",
                 "source": "cn",
                 "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 540
+                "_cumOut": 0
         },
         {
                 "code": "SC008",
@@ -4267,11 +4459,11 @@ function initSampleData() {
                 "spec": "0.5kg*36 18kg/箱 0,5 кг * 36, 18 кг в коробке",
                 "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 100,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
-                "expireDate": "",
-                "prodDate": "",
+                "expireDate": "2027-01-11",
+                "prodDate": "2026-04-17",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4280,9 +4472,9 @@ function initSampleData() {
                 "code": "SC009",
                 "name": "鲜奶油 Сливки",
                 "spec": "1000ml*12 瓶/箱 1000 мл * 12 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4295,9 +4487,9 @@ function initSampleData() {
                 "code": "SC010",
                 "name": "炼乳 Молоко сгущеное",
                 "spec": "4kg*4 桶/箱 4 кг * 4 ведра в коробке",
-                "unit": "箱 / короб.",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4308,11 +4500,11 @@ function initSampleData() {
         },
         {
                 "code": "SC011",
-                "name": "芝士5.5kg Сыр творожный",
-                "spec": "5.5kg*4 桶/箱 5,5 кг * 4 ведра в коробке",
-                "unit": "箱 / короб.",
+                "name": "芝士2.2kg Сыр творожный",
+                "spec": "2.2kg*4 桶/箱 2.2 кг * 4 ведра в коробке",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4327,11 +4519,11 @@ function initSampleData() {
                 "spec": "1kg*20包/箱 1 кг * 20 упаковок/коробка.",
                 "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 100,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
-                "expireDate": "",
-                "prodDate": "",
+                "expireDate": "2027-01-18",
+                "prodDate": "2026-01-19",
                 "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4340,9 +4532,9 @@ function initSampleData() {
                 "code": "SC013",
                 "name": "巧克力酱   Шоколадная паста",
                 "spec": "12kg/桶 12 кг/ведро",
-                "unit": "桶 / ведро",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4356,143 +4548,133 @@ function initSampleData() {
                 "name": "糖水葡萄罐头 Виноград фрукты/ягоды  консервированный",
                 "spec": "850g*12 罐/箱 850 г * 12 банок/коробка",
                 "unit": "千克 / кг",
-                "stock": 918,
-                "safeStock": 100,
-                "initialStock": 918,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2027-03-24",
                 "prodDate": "2025-03-25",
                 "source": "cn",
                 "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 730
+                "_cumOut": 0
+        },
+        {
+                "code": "SC014-Z-1",
+                "name": "糖水葡萄罐头",
+                "spec": "850g*12",
+                "unit": "千克 / кг",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "2028-03-10",
+                "prodDate": "2026-03-12",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
         },
         {
                 "code": "SC015",
                 "name": "香芋粉 Таро Порошок",
                 "spec": "1kg*20包/箱 1 кг × 20 упаковок/коробка",
                 "unit": "千克 / кг",
-                "stock": 110,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 110,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2027-03-08",
                 "prodDate": "2026-03-09",
                 "source": "cn",
                 "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 365
+                "_cumOut": 0
         },
         {
                 "code": "SC015-Z",
                 "name": "香芋粉",
                 "spec": "1*20",
                 "unit": "千克 / кг",
-                "stock": 100,
-                "safeStock": 50,
-                "initialStock": 100,
-                "_cumIn": 0,
-                "_cumOut": 0,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2026-12-14",
                 "prodDate": "2025-12-15",
-                "image": "",
-                "shelfDays": 365,
-                "source": "cn"
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
         },
         {
                 "code": "SC016",
                 "name": "椰果颗粒 Желе кокос",
                 "spec": "2.5kg*8 桶/箱 2,5 кг * 8 ведер/коробка",
                 "unit": "千克 / кг",
-                "stock": 40,
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 40,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2026-09-25",
                 "prodDate": "2025-09-26",
                 "source": "cn",
                 "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 365
+                "_cumOut": 0
         },
         {
                 "code": "SC016-Z",
                 "name": "椰果颗粒",
                 "spec": "1*20",
                 "unit": "千克 / кг",
-                "stock": 280,
-                "safeStock": 100,
-                "initialStock": 280,
-                "_cumIn": 0,
-                "_cumOut": 0,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2027-04-05",
                 "prodDate": "2026-04-06",
-                "image": "",
-                "shelfDays": 365,
-                "source": "cn"
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
         },
         {
                 "code": "SC017-Z",
                 "name": "原味晶球(脆啵啵) Шарики Цуй бобо",
                 "spec": "1kg*20包/箱 1 кг * 20 пакетов/коробка",
                 "unit": "千克 / кг",
-                "stock": 360,
-                "safeStock": 100,
-                "initialStock": 360,
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2026-10-24",
                 "prodDate": "2025-10-25",
                 "source": "cn",
                 "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 365
+                "_cumOut": 0
         },
         {
                 "code": "SC018",
                 "name": "植脂末",
                 "spec": "1*20",
-                "unit": "个 / шт.",
-                "stock": 140,
+                "unit": "千克 / кг",
+                "stock": 0,
                 "safeStock": 0,
-                "initialStock": 140,
-                "_cumIn": 0,
-                "_cumOut": 0,
+                "initialStock": 0,
                 "supplier": "",
                 "expireDate": "2027-02-04",
                 "prodDate": "2026-02-05",
-                "shelfDays": 365,
-                "source": "cn"
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
         },
         {
                 "code": "SC018-Z",
                 "name": "植脂末 Сливки сухие",
                 "spec": "1kg*20 包/箱  пакетов/коробка",
                 "unit": "千克 / кг",
-                "stock": 320,
-                "safeStock": 100,
-                "initialStock": 320,
-                "supplier": "",
-                "expireDate": "2026-06-17",
-                "prodDate": "2025-06-18",
-                "source": "cn",
-                "_cumIn": 0,
-                "_cumOut": 0,
-                "shelfDays": 365
-        },
-        {
-                "code": "SC019",
-                "name": "白糖 Сахар белый",
-                "spec": "0.5kg/包 0.5 кг/пакет",
-                "unit": "包 / упак.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
-                "expireDate": "",
-                "prodDate": "",
-                "source": "ru",
+                "expireDate": "2027-02-17",
+                "prodDate": "2026-02-18",
+                "source": "cn",
                 "_cumIn": 0,
                 "_cumOut": 0
         },
@@ -4502,12 +4684,11 @@ function initSampleData() {
                 "spec": "1. 5л/ 2. 7л/ 3. 30л  в бутылки",
                 "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4516,14 +4697,13 @@ function initSampleData() {
                 "code": "SC021",
                 "name": "汽泡水 Вода газированная",
                 "spec": "1500ml*6瓶/箱 1500 мл * 6 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "L",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4532,9 +4712,9 @@ function initSampleData() {
                 "code": "SC022",
                 "name": "葡萄糖浆  Cироп винограда",
                 "spec": "5000ml*4瓶/箱 5000 мл * 4 бутылки в коробке",
-                "unit": "箱 / короб.",
+                "unit": "KG",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4547,14 +4727,13 @@ function initSampleData() {
                 "code": "SC023",
                 "name": "草莓糖浆 Сироп клубника",
                 "spec": "1000ml*6瓶/箱 1000 мл * 6 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4563,14 +4742,13 @@ function initSampleData() {
                 "code": "SC024",
                 "name": "焦糖糖浆 Сироп карамель",
                 "spec": "1000ml*6瓶/箱 1000 мл * 6 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4579,14 +4757,13 @@ function initSampleData() {
                 "code": "SC025",
                 "name": "蓝色糖浆 Сироп blue",
                 "spec": "1000ml*6瓶/箱 1000 мл * 6 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4595,14 +4772,13 @@ function initSampleData() {
                 "code": "SC026",
                 "name": "芒果糖浆 Сироп манго",
                 "spec": "1000ml*6瓶/箱 1000 мл * 6 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4611,9 +4787,9 @@ function initSampleData() {
                 "code": "SC027",
                 "name": "桃子糖浆 Сироп персик",
                 "spec": "1000ml*6瓶/箱 1000 мл * 6 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4626,9 +4802,9 @@ function initSampleData() {
                 "code": "SC028",
                 "name": "香草糖浆 Сироп ваниль",
                 "spec": "1000ml*6瓶/箱 1000 мл * 6 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4641,14 +4817,13 @@ function initSampleData() {
                 "code": "SC029",
                 "name": "椰子糖浆 Сироп кокос",
                 "spec": "1000ml*6瓶/箱 1000 мл * 6 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4657,9 +4832,9 @@ function initSampleData() {
                 "code": "SC030",
                 "name": "樱花糖浆 Сироп сакуры",
                 "spec": "1000ml*6瓶/箱 1000 мл * 6 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4672,14 +4847,13 @@ function initSampleData() {
                 "code": "SC031",
                 "name": "冷冻百香果 Фрукты/Ягоды Маракуйя см.",
                 "spec": "1kg/10kg/箱 1 кг/10 кг / коробка",
-                "unit": "箱 / короб.",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4688,41 +4862,39 @@ function initSampleData() {
                 "code": "SC032",
                 "name": "冷冻草莓 Фрукты/Ягоды Клубника см.",
                 "spec": "1.  10кг/ 2. 15кг в каробке",
-                "unit": "箱 / короб.",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
         },
         {
                 "code": "SC033",
-                "name": "冷冻芒果10kg Фрукты/Ягоды Манго дольки см.",
+                "name": "冷冻芒果泥10kg Фрукты/Ягоды Манго дольки см.",
                 "spec": "10kg/箱 10 кг /15кг коробка",
-                "unit": "箱 / короб.",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
         },
         {
                 "code": "SC034",
-                "name": "冷冻芒果15kg Фрукты/Ягоды Манго дольки см.",
+                "name": "冷冻芒果块15kg Фрукты/Ягоды Манго дольки см.",
                 "spec": "15kg/箱 15 кг /15кг коробка",
-                "unit": "箱 / короб.",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4735,9 +4907,9 @@ function initSampleData() {
                 "code": "SC035",
                 "name": "冷冻芒果浆10kg Пюре манго",
                 "spec": "10kg/箱 10 кг / коробка",
-                "unit": "箱 / короб.",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4750,9 +4922,144 @@ function initSampleData() {
                 "code": "SC036",
                 "name": "冷冻芒果浆15kg Пюре манго",
                 "spec": "15kg/箱 15 кг / коробка",
-                "unit": "箱 / короб.",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 5,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "ru",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "SC037",
+                "name": "桂花乌龙Улун с османтусом",
+                "spec": "",
+                "unit": "千克 / кг",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "SC038",
+                "name": "红茶（轻乳茶）Черный чай (легкий молочный чай)",
+                "spec": "",
+                "unit": "千克 / кг",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "SC039",
+                "name": "青提酱Пюре зеленого винограда",
+                "spec": "",
+                "unit": "千克 / кг",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "cn",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "SC040",
+                "name": "冰淇淋蛋卷Вафельные рожки",
+                "spec": "",
+                "unit": "个 / шт.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "ru",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "SC041",
+                "name": "香草冰淇淋tangjiatttang'jianВанильный мороженый порошок",
+                "spec": "",
+                "unit": "千克 / кг",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "ru",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "SC042",
+                "name": "葡萄糖冰淇淋粉Мороженый порошок с глюкозой",
+                "spec": "",
+                "unit": "千克 / кг",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "ru",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "SC043",
+                "name": "咖啡豆Кофе зерна",
+                "spec": "",
+                "unit": "千克 / кг",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "ru",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "SC044",
+                "name": "橙子糖浆Апельсиновый сироп",
+                "spec": "",
+                "unit": "瓶 / бут.",
+                "stock": 0,
+                "safeStock": 0,
+                "initialStock": 0,
+                "supplier": "",
+                "expireDate": "",
+                "prodDate": "",
+                "source": "ru",
+                "_cumIn": 0,
+                "_cumOut": 0
+        },
+        {
+                "code": "SC045",
+                "name": "冰淇淋草莓粉Клубничная смесь для мороженого",
+                "spec": "",
+                "unit": "千克 / кг",
+                "stock": 0,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4767,7 +5074,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4782,7 +5089,7 @@ function initSampleData() {
                 "spec": "收银台使用",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4797,7 +5104,7 @@ function initSampleData() {
                 "spec": "70L",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4812,7 +5119,7 @@ function initSampleData() {
                 "spec": "-",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4827,7 +5134,7 @@ function initSampleData() {
                 "spec": "-",
                 "unit": "把 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4842,7 +5149,7 @@ function initSampleData() {
                 "spec": "400*300",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4857,7 +5164,7 @@ function initSampleData() {
                 "spec": "A4",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4872,7 +5179,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4887,7 +5194,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "支 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4902,7 +5209,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "支 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4917,12 +5224,11 @@ function initSampleData() {
                 "spec": "",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4933,7 +5239,7 @@ function initSampleData() {
                 "spec": "375*255*150",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4948,12 +5254,11 @@ function initSampleData() {
                 "spec": "10L",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4964,12 +5269,11 @@ function initSampleData() {
                 "spec": "-",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -4978,9 +5282,9 @@ function initSampleData() {
                 "code": "ZC015",
                 "name": "60L垃圾袋 Мешки для мусора 160 литров",
                 "spec": "30L",
-                "unit": "支 / шт.",
+                "unit": "包 / упак.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -4993,9 +5297,9 @@ function initSampleData() {
                 "code": "ZC016",
                 "name": "160L垃圾袋 Мешки для мусора 120 литров",
                 "spec": "120L",
-                "unit": "支 / шт.",
+                "unit": "包 / упак.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5010,7 +5314,7 @@ function initSampleData() {
                 "spec": "100 шт",
                 "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5025,7 +5329,7 @@ function initSampleData() {
                 "spec": "100 шт",
                 "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5040,12 +5344,11 @@ function initSampleData() {
                 "spec": "1000ml",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -5054,9 +5357,9 @@ function initSampleData() {
                 "code": "ZC020",
                 "name": "透明胶带 Скотч прозрач.",
                 "spec": "-",
-                "unit": "个 / шт.",
+                "unit": "卷",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5069,14 +5372,13 @@ function initSampleData() {
                 "code": "ZC021",
                 "name": "白色胶带  Скотч белый",
                 "spec": "-",
-                "unit": "个 / шт.",
+                "unit": "卷",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -5087,12 +5389,11 @@ function initSampleData() {
                 "spec": "",
                 "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -5103,12 +5404,11 @@ function initSampleData() {
                 "spec": "-",
                 "unit": "块 / блок",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -5117,9 +5417,9 @@ function initSampleData() {
                 "code": "ZC024",
                 "name": "西餐刀  столовых ножей",
                 "spec": "",
-                "unit": "支 / шт.",
+                "unit": "把 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5132,9 +5432,9 @@ function initSampleData() {
                 "code": "ZC025",
                 "name": "餐勺  Ложка столовая",
                 "spec": "",
-                "unit": "支 / шт.",
+                "unit": "把 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5149,7 +5449,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "支 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5162,9 +5462,9 @@ function initSampleData() {
                 "code": "ZC027",
                 "name": "食品分装袋 пакет для фасовки продуктов",
                 "spec": "",
-                "unit": "支 / шт.",
+                "unit": "包 / упак.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5179,7 +5479,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5192,9 +5492,9 @@ function initSampleData() {
                 "code": "ZC029",
                 "name": "食品密封夹  Зажим для герметичного закрывания пакетов",
                 "spec": "",
-                "unit": "包 / упак.",
+                "unit": "个 / шт.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5209,7 +5509,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5224,7 +5524,7 @@ function initSampleData() {
                 "spec": "0.5 kg.",
                 "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5239,7 +5539,7 @@ function initSampleData() {
                 "spec": "瓶 бутылка",
                 "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5254,7 +5554,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "包 / упак.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5269,7 +5569,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "包 / упак.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5284,7 +5584,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5299,7 +5599,7 @@ function initSampleData() {
                 "spec": "",
                 "unit": "块 / блок",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5312,9 +5612,9 @@ function initSampleData() {
                 "code": "ZC037",
                 "name": "黄油 Масло сливочное",
                 "spec": "180g/块 180 г / кусок",
-                "unit": "块 / блок",
+                "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5327,9 +5627,9 @@ function initSampleData() {
                 "code": "ZC038",
                 "name": "咖啡奶 Молоко кофейное",
                 "spec": "1000ml*12 瓶/箱 1000 мл * 12 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5344,7 +5644,7 @@ function initSampleData() {
                 "spec": "12 个/盒 12 штук/пачка",
                 "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5359,7 +5659,7 @@ function initSampleData() {
                 "spec": "270 g/瓶 270 г/банка",
                 "unit": "瓶 / бут.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5372,14 +5672,13 @@ function initSampleData() {
                 "code": "ZC041",
                 "name": "3.2%牛奶 Молоко",
                 "spec": "1000ml*12 瓶/箱 1000 мл * 12 бутылок в коробке",
-                "unit": "箱 / короб.",
+                "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
                 "prodDate": "",
-                "image": "",
                 "source": "ru",
                 "_cumIn": 0,
                 "_cumOut": 0
@@ -5390,7 +5689,7 @@ function initSampleData() {
                 "spec": "500 g/盒 500 г/коробка",
                 "unit": "盒 / короб.",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5405,7 +5704,7 @@ function initSampleData() {
                 "spec": "1kg",
                 "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5420,7 +5719,7 @@ function initSampleData() {
                 "spec": "1kg",
                 "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5435,7 +5734,7 @@ function initSampleData() {
                 "spec": "1kg",
                 "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5448,9 +5747,9 @@ function initSampleData() {
                 "code": "ZC046",
                 "name": "新鲜西瓜 Фрукты/Ягоды Арбуз",
                 "spec": "1kg",
-                "unit": "个 / шт.",
+                "unit": "千克 / кг",
                 "stock": 0,
-                "safeStock": 3,
+                "safeStock": 0,
                 "initialStock": 0,
                 "supplier": "",
                 "expireDate": "",
@@ -5459,7 +5758,7 @@ function initSampleData() {
                 "_cumIn": 0,
                 "_cumOut": 0
         }
-];
+    ];
     inboundHistory = [];
     outboundHistory = [];
     operationLogs = [];
@@ -6073,7 +6372,7 @@ function normalizeAllOutboundDepartments() {
     var changed = false;
     var OLD_DEPT = '特维尔大街门店 / Тверская';
     var NEW_DEPT = '特维尔鲁宾店Филиал в ТЦ «Рубин», Тверь';
-    var migrationDone = localStorage.getItem('migrated_dept_20260702') === '1';
+    var migrationDone = localStorage.getItem('migrated_dept_20260702-new') === '1';
 
     // 迁移 outboundHistory（无论 flag 是否已设置，始终扫描防止 Gist 回退）
     if (outboundHistory && outboundHistory.length) {
@@ -6086,7 +6385,7 @@ function normalizeAllOutboundDepartments() {
     }
     // 迁移 warehouse_dept_list（始终扫描）
     try {
-        var deptList = JSON.parse(localStorage.getItem('warehouse_dept_list') || '[]');
+        var deptList = JSON.parse(localStorage.getItem('warehouse_dept_list-new') || '[]');
         var deptChanged = false;
         for (var j = 0; j < deptList.length; j++) {
             if (deptList[j] === OLD_DEPT) {
@@ -6095,12 +6394,12 @@ function normalizeAllOutboundDepartments() {
             }
         }
         if (deptChanged) {
-            localStorage.setItem('warehouse_dept_list', JSON.stringify(deptList));
+            localStorage.setItem('warehouse_dept_list-new', JSON.stringify(deptList));
         }
     } catch(e) {}
 
     if (!migrationDone) {
-        localStorage.setItem('migrated_dept_20260702', '1');
+        localStorage.setItem('migrated_dept_20260702-new', '1');
         window._migrationJustDone = true;
     }
 
@@ -6123,6 +6422,18 @@ function normalizeAllOutboundDepartments() {
 document.addEventListener('DOMContentLoaded', function() {
     // 启动阶段禁止 saveToGist 上传，避免本地旧数据污染 Gist
     _gistLoading = true;
+
+    // 网页版 + 无 Token：在页面顶部插入醒目引导横幅
+    if (window.IS_WEB_MODE && !GIST_TOKEN) {
+        var banner = document.createElement('div');
+        banner.id = 'sync-token-banner';
+        banner.style.cssText = 'background:#fff3cd;color:#856404;padding:12px 20px;text-align:center;font-size:14px;border-bottom:2px solid #ffc107;position:relative;z-index:10000;';
+        banner.innerHTML = '<strong>⚠️ 网页版尚未配置 GitHub Token</strong> — 无法与 Gist 同步数据。<br>' +
+            '<span style="font-size:13px;">请在浏览器控制台（F12 → Console）执行：</span><br>' +
+            '<code style="background:#fff3cd;padding:4px 8px;border:1px solid #ffc107;border-radius:4px;font-size:13px;">setGistToken("ghp_你的Token")</code>';
+        document.body.insertBefore(banner, document.body.firstChild);
+    }
+
     const loaded = loadAllData();
     if (!loaded) initSampleData();
     // 批量规范化出库历史中的部门名称
@@ -6157,14 +6468,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         // 无论 Gist 是否成功加载，只要有本地备份数据且无正式仓库数据，就显示恢复按钮
         // 即使 warehouse-data 存在，也检查备份中是否有更新的版本（如 Gist 误覆盖后）
-        if (localStorage.getItem('warehouse-auto-backups')) {
-            var hasWarehouseData = !!localStorage.getItem('warehouse-data');
+        if (localStorage.getItem('warehouse-auto-backups-new')) {
+            var hasWarehouseData = !!localStorage.getItem('warehouse-data-new');
             if (!hasWarehouseData) {
                 document.getElementById('btn-restore-backup').style.display = 'block';
             } else {
                 try {
-                    var _ab = JSON.parse(localStorage.getItem('warehouse-auto-backups'));
-                    var _wd = JSON.parse(localStorage.getItem('warehouse-data'));
+                    var _ab = JSON.parse(localStorage.getItem('warehouse-auto-backups-new'));
+                    var _wd = JSON.parse(localStorage.getItem('warehouse-data-new'));
                     if (_ab && _ab.length > 0) {
                         var _latestBk = _ab[_ab.length - 1];
                         var _bkVer = (_latestBk.data || _latestBk).dataVersion || 0;
@@ -6179,9 +6490,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 } catch(e) {}
             }
         }
-        // 启动 Gist 自动轮询（每10秒，更及时同步其他客户端的扫码数据）
+        // 启动 Gist 自动轮询
+        // 桌面版：10 秒（写入方，节省网络）
+        // 网页版：5 秒（读取方，需要快速看到桌面版录入的数据）
         if (!syncPollTimer) {
-            syncPollTimer = setInterval(pollGistSync, 10000);
+            var _pollMs = window.IS_WEB_MODE ? 5000 : 10000;
+            syncPollTimer = setInterval(pollGistSync, _pollMs);
+            console.info('[Sync] ' + (window.IS_WEB_MODE ? '网页版' : '桌面版') + ' 模式，轮询间隔 ' + (_pollMs / 1000) + ' 秒');
         }
         _gistLoading = false;
         trySyncPending();
@@ -6197,7 +6512,27 @@ document.addEventListener('DOMContentLoaded', function() {
     syncUnitBilingual();
     refreshAll();
 
-    currentUser = localStorage.getItem('warehouse-user') || '';
+    // 显示运行模式徽章：网页版告知用户这是被动同步端
+    var modeBadge = document.getElementById('run-mode-badge');
+    if (modeBadge) {
+        if (window.IS_WEB_MODE) {
+            modeBadge.textContent = currentLang === 'zh' ? '🌐 网页版（被动同步）' : '🌐 Веб-версия';
+            modeBadge.title = currentLang === 'zh'
+                ? '本页面从 Gist 拉取数据，主要用于查看。请在桌面版录入数据，本页面会自动同步显示。'
+                : 'Эта страница получает данные из Gist. Вводите данные в десктопной версии.';
+            modeBadge.style.display = 'inline-block';
+            modeBadge.style.background = '#9b59b6';
+        } else {
+            modeBadge.textContent = currentLang === 'zh' ? '💻 桌面版（主写入端）' : '💻 Десктоп';
+            modeBadge.title = currentLang === 'zh'
+                ? '本页面是数据录入主端，修改会同步推送到 Gist。'
+                : 'Эта страница — основной источник данных.';
+            modeBadge.style.display = 'inline-block';
+            modeBadge.style.background = '#16a085';
+        }
+    }
+
+    currentUser = localStorage.getItem('warehouse-user-new') || '';
     updateUserDisplay();
 
     // 登录弹窗事件绑定
@@ -6208,9 +6543,23 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('login-password-input').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') loginAsAdmin();
     });
+    // 忘记密码：一键重置为 admin123（解决 Gist 同步覆盖密码的问题）
+    document.getElementById('btn-login-reset').addEventListener('click', function() {
+        var isZh = currentLang === 'zh';
+        var ok = confirm(isZh
+            ? '确认将管理员密码重置为 admin123？\n\n这会清掉当前所有本地数据，但 Gist 上的备份数据可以通过"操作日志"页的恢复按钮拉回来。'
+            : 'Сбросить пароль на admin123?\n\nЭто очистит локальные данные. Резервную копию из Gist можно восстановить.');
+        if (!ok) return;
+        // 清掉所有 localStorage（与"清除全部数据"一致），但保留 Gist 数据
+        localStorage.clear();
+        localStorage.setItem('warehousePassword-new', 'admin123');
+        warehousePassword = 'admin123';
+        // 刷新页面让代码重新初始化
+        location.reload();
+    });
 
     // 首次打开弹出登录弹窗
-    if (sessionStorage.getItem('warehouse-is-admin') === null) {
+    if (sessionStorage.getItem('warehouse-is-admin-new') === null) {
         showLoginModal();
     } else {
         updateRoleUI();
@@ -6218,13 +6567,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('btn-set-user').addEventListener('click', function() {
         currentUser = document.getElementById('user-name-input').value.trim();
-        localStorage.setItem('warehouse-user', currentUser);
+        localStorage.setItem('warehouse-user-new', currentUser);
         updateUserDisplay();
     });
     document.getElementById('user-name-input').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
             currentUser = this.value.trim();
-            localStorage.setItem('warehouse-user', currentUser);
+            localStorage.setItem('warehouse-user-new', currentUser);
             updateUserDisplay();
         }
     });
@@ -6356,16 +6705,22 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // 实时库存总表 - 列头排序同步处理所有可编辑列
-    const summaryThObserver = new MutationObserver(function() {
-        document.querySelectorAll('#summary-table tbody .td-safe-stock, #summary-table tbody .td-init-stock, #summary-table tbody .td-editable, #summary-table tbody .td-image-edit, #summary-table tbody .td-shelflife, #summary-table tbody .td-proddate, #summary-table tbody .td-expdate').forEach(function(td) {
-            if (!td.dataset.code) {
-                const tr = td.parentElement;
-                const codeTd = tr.firstElementChild;
-                if (codeTd) td.dataset.code = codeTd.textContent;
-            }
+    // 性能优化：原实现每次 DOM 变化都全表扫描所有 td。改为直接由 renderSummary 写入 dataset.code，无需 observer。
+    // 保留 observer 仅用于将来扩展（如外部脚本插入行）。
+    var summaryThObserver = new MutationObserver(function() {
+        // 仅修复可能的旧节点（没有 dataset.code 的），新生成的 td 已有正确属性
+        var firstChild = document.querySelector('#summary-table tbody tr:first-child');
+        if (!firstChild || firstChild.firstElementChild.dataset.code) return;
+        document.querySelectorAll('#summary-table tbody tr').forEach(function(tr) {
+            var codeTd = tr.firstElementChild;
+            if (!codeTd) return;
+            var code = codeTd.dataset.code || codeTd.textContent;
+            tr.querySelectorAll('.td-safe-stock, .td-init-stock, .td-editable, .td-image-edit, .td-shelflife, .td-proddate, .td-expdate').forEach(function(td) {
+                if (!td.dataset.code) td.dataset.code = code;
+            });
         });
     });
-    summaryThObserver.observe(document.querySelector('#summary-table tbody'), { childList: true, subtree: true });
+    summaryThObserver.observe(document.querySelector('#summary-table tbody'), { childList: true });
 
     document.getElementById('inbound-image').addEventListener('change', function() {
         if (!isAdmin) return;
@@ -6428,6 +6783,8 @@ document.addEventListener('DOMContentLoaded', function() {
         showAlert('success', t.alertSuccessIn, 'inbound');
         refreshAll();
         saveAllData();
+        // 网页版：跳过防抖立即推送，避免桌面版要等 3 秒才看到
+        if (window.IS_WEB_MODE) saveToGist(true);
         this.reset();
         document.getElementById('inbound-operator').value = currentUser || (currentLang === 'zh' ? '当前用户' : 'Текущий');
     });
@@ -6551,11 +6908,21 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    function escapeHTML(str) {
-        var div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
+function escapeHTML(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+// 属性值转义：用于 src/href/onclick 等属性上下文，比 textContent 更严格
+function escapeHTMLAttr(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
 
     // 入库 - 实时匹配 + 采购地自动填入
     setupCodeAutofill('inbound-code', 'inbound-name', 'inbound-code-suggestions', function(item) {
@@ -6590,8 +6957,8 @@ document.addEventListener('DOMContentLoaded', function() {
         var customList = [];
         var blacklist = [];
         try {
-            customList = JSON.parse(localStorage.getItem('warehouse_dept_list') || '[]');
-            blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist') || '[]');
+            customList = JSON.parse(localStorage.getItem('warehouse_dept_list-new') || '[]');
+            blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist-new') || '[]');
         } catch(e) {}
         var all = PRESET_DEPARTMENTS.slice();
         customList.forEach(function(d) {
@@ -6618,22 +6985,22 @@ document.addEventListener('DOMContentLoaded', function() {
         // 先从黑名单中移除（如果之前被删除过，手动输入即恢复）
         var blacklist = [];
         try {
-            blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist') || '[]');
+            blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist-new') || '[]');
         } catch(e) {}
         var bi = blacklist.indexOf(dept);
         if (bi !== -1) {
             blacklist.splice(bi, 1);
-            localStorage.setItem('warehouse_dept_blacklist', JSON.stringify(blacklist));
+            localStorage.setItem('warehouse_dept_blacklist-new', JSON.stringify(blacklist));
         }
         var all = getDepartmentList();
         if (all.indexOf(dept) !== -1) return;
         var customList = [];
         try {
-            customList = JSON.parse(localStorage.getItem('warehouse_dept_list') || '[]');
+            customList = JSON.parse(localStorage.getItem('warehouse_dept_list-new') || '[]');
         } catch(e) {}
         if (customList.indexOf(dept) === -1) {
             customList.push(dept);
-            localStorage.setItem('warehouse_dept_list', JSON.stringify(customList));
+            localStorage.setItem('warehouse_dept_list-new', JSON.stringify(customList));
             renderDeptDatalist();
         }
     }
@@ -6687,21 +7054,21 @@ document.addEventListener('DOMContentLoaded', function() {
         // 从 warehouse_dept_list 中移除（如果存在）
         var customList = [];
         try {
-            customList = JSON.parse(localStorage.getItem('warehouse_dept_list') || '[]');
+            customList = JSON.parse(localStorage.getItem('warehouse_dept_list-new') || '[]');
         } catch(e) {}
         var idx = customList.indexOf(dept);
         if (idx !== -1) {
             customList.splice(idx, 1);
-            localStorage.setItem('warehouse_dept_list', JSON.stringify(customList));
+            localStorage.setItem('warehouse_dept_list-new', JSON.stringify(customList));
         }
         // 加入黑名单，阻止从 outboundHistory 或其他来源再次出现
         var blacklist = [];
         try {
-            blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist') || '[]');
+            blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist-new') || '[]');
         } catch(e) {}
         if (blacklist.indexOf(dept) === -1) {
             blacklist.push(dept);
-            localStorage.setItem('warehouse_dept_blacklist', JSON.stringify(blacklist));
+            localStorage.setItem('warehouse_dept_blacklist-new', JSON.stringify(blacklist));
         }
         renderDeptDatalist();
         showDeptManager(); // 刷新弹窗
@@ -6740,6 +7107,8 @@ document.addEventListener('DOMContentLoaded', function() {
         showAlert('success', t.alertSuccessOut, 'outbound');
         refreshAll();
         saveAllData();
+        // 网页版：跳过防抖立即推送
+        if (window.IS_WEB_MODE) saveToGist(true);
         this.reset();
     });
 
@@ -6774,10 +7143,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // 启动自动备份
     // 页面加载时清理超出限制的旧备份
     try {
-        var autoBackups = JSON.parse(localStorage.getItem('warehouse-auto-backups') || '[]');
+        var autoBackups = JSON.parse(localStorage.getItem('warehouse-auto-backups-new') || '[]');
         if (autoBackups.length > 10) {
             autoBackups = autoBackups.slice(autoBackups.length - 10);
-            localStorage.setItem('warehouse-auto-backups', JSON.stringify(autoBackups));
+            localStorage.setItem('warehouse-auto-backups-new', JSON.stringify(autoBackups));
         }
     } catch(e) {}
     startAutoBackup();
@@ -6789,7 +7158,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var isZh = currentLang === 'zh';
 
         // 保存前：计算 warehouse-data 体积和总用量
-        var rawData = localStorage.getItem('warehouse-data');
+        var rawData = localStorage.getItem('warehouse-data-new');
         var preDataBytes = rawData ? rawData.length * 2 : 0; // UTF-16
         var preTotalBytes = 0;
         for (var i = 0; i < localStorage.length; i++) {
@@ -6803,8 +7172,14 @@ document.addEventListener('DOMContentLoaded', function() {
             showAlert('danger', t.saveFailed + ': ' + (isZh ? '存储空间不足，请清理浏览器缓存' : 'Недостаточно места, очистите кэш'), 'summary');
             return;
         }
-        // 保留核心数据key列表
-        var coreKeys = ['warehouse-data', 'warehouse-lang', 'warehouse-user', 'warehousePassword', '_tk_a', '_tk_b', '_tk_c'];
+        // 保留核心数据 key 列表（包含自动备份，这是数据恢复的最后防线）
+        var coreKeys = [
+            'warehouse-data-new', 'warehouse-lang-new', 'warehouse-user-new',
+            'warehousePassword-new', 'warehouse-auto-backups-new',
+            'warehouse_dept_list-new', 'warehouse_dept_blacklist-new',
+            'gist-pending-sync-new',
+            '_tk_a-new', '_tk_b-new', '_tk_c-new'
+        ];
         var coreData = {};
         coreKeys.forEach(function(k) {
             var v = localStorage.getItem(k);
@@ -6823,7 +7198,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var v2 = localStorage.getItem(k2);
             var kvBytes = (k2.length + v2.length) * 2;
             postTotalBytes += kvBytes;
-            if (k2 === 'warehouse-data') postDataBytes = kvBytes;
+            if (k2 === 'warehouse-data-new') postDataBytes = kvBytes;
         }
         var dataKB = (postDataBytes / 1024).toFixed(1);
         var totalKB = (postTotalBytes / 1024).toFixed(1);
@@ -6845,34 +7220,77 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!isAdmin) return;
         var isZh = currentLang === 'zh';
         var msg = isZh
-            ? '同步说明：\n\n1. 推送前确保已安装 Git 并登录 GitHub\n2. 已克隆过仓库的会直接推送；首次需要配置 Personal Access Token\n3. 双击桌面「一键同步到网页版.bat」也可执行\n\n是否现在下载同步脚本？'
-            : 'Инструкция по синхронизации...';
+            ? '同步说明：\n\n下载的脚本会自动完成两件事：\n1. cp 桌面版 HTML 到 appdata 网页版位置（自动）\n2. git push 到 GitHub Pages 仓库（首次需配置 PAT）\n\n是否现在下载同步脚本？'
+            : 'Скрипт синхронизации: 1) копирует локальную версию, 2) пушит в GitHub Pages.';
         if (!confirm(msg)) return;
-        // 下载一键同步脚本
+
+        // 探测用户名（从 %USERPROFILE% 推断），让脚本尽量开箱即用
+        // 用 PowerShell 一次性获取，避免 .bat 里 echo 截断中文字符
         var scriptContent = [
             '@echo off',
             'chcp 65001 >nul',
-            'title Sync warehouse to GitHub Pages',
-            'set REPO_URL=https://github.com/chengbaojun37-code/chengbaojun37-code.github.io.git',
-            'set REPO_DIR=%USERPROFILE%\\warehouse-pages-repo',
-            'if not exist "%REPO_DIR%" ( git clone "%REPO_URL%" "%REPO_DIR%" )',
-            'cd /d "%REPO_DIR%"',
+            'setlocal EnableDelayedExpansion',
+            'title Sync warehouse to web version',
+            '',
+            'echo ====================================================',
+            'echo  Step 1: 同步到 Marvis appdata 本地副本',
+            'echo ====================================================',
+            '',
+            'set "DESKTOP_FILE=%USERPROFILE%\\Desktop\\仓库出入库管理系统-新.html"',
+            'set "APPDATA_DIR=%APPDATA%\\Tencent\\Marvis\\User\\oAN1i2fTKtYHbbis0QVqEmtAMZAU\\workspace\\conv_19eeec263ec_37a574964a54\\output"',
+            'set "WEB_FILE=!APPDATA_DIR!\\仓库出入库管理系统-网页版.html"',
+            '',
+            'if not exist "!DESKTOP_FILE!" (',
+            '    echo [错误] 桌面文件不存在: !DESKTOP_FILE!',
+            '    echo 请确认文件名是否为「仓库出入库管理系统-新.html」',
+            '    pause',
+            '    exit /b 1',
+            ')',
+            '',
+            'if not exist "!APPDATA_DIR!" mkdir "!APPDATA_DIR!"',
+            'copy /Y "!DESKTOP_FILE!" "!WEB_FILE!"',
+            'echo [完成] 已同步到: !WEB_FILE!',
+            'echo.',
+            '',
+            'echo ====================================================',
+            'echo  Step 2: 推送到 GitHub Pages',
+            'echo ====================================================',
+            'echo.',
+            'set /p "DO_PUSH=是否继续推送到 GitHub Pages？(Y/N, 默认 Y): "',
+            'if /i "!DO_PUSH!"=="N" goto :end',
+            '',
+            'set "REPO_URL=https://github.com/chengbaojun37-code/chengbaojun37-code.github.io.git"',
+            'set "REPO_DIR=%USERPROFILE%\\warehouse-pages-repo"',
+            '',
+            'if not exist "!REPO_DIR!\\.git" (',
+            '    echo [首次] 正在克隆 GitHub Pages 仓库...',
+            '    git clone "!REPO_URL!" "!REPO_DIR!" || ( echo [错误] git clone 失败，请确认已安装 Git & 配置 PAT & pause & exit /b 1 )',
+            ')',
+            '',
+            'cd /d "!REPO_DIR!"',
             'git pull origin main 2>nul || git pull origin master 2>nul',
-            'copy /Y "%USERPROFILE%\\Desktop\\仓库出入库管理系统.html" "index.html"',
+            'copy /Y "!DESKTOP_FILE!" "index.html"',
             'git add index.html',
             'git commit -m "feat: 同步本地版" 2>nul',
             'git push origin main 2>nul || git push origin master 2>nul',
-            'echo. & echo Done! & pause'
+            '',
+            ':end',
+            'echo.',
+            'echo ====================================================',
+            'echo  全部完成！',
+            'echo ====================================================',
+            'pause'
         ].join('\r\n');
+
         var blob = new Blob([scriptContent], { type: 'application/octet-stream' });
         var a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'sync-warehouse-to-pages.bat';
+        a.download = 'sync-warehouse-to-web.bat';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         showAlert('success',
-            isZh ? '同步脚本已下载。双击运行即可推送代码到网页版。' : 'Скрипт синхронизации загружен.',
+            isZh ? '同步脚本已下载（sync-warehouse-to-web.bat）。双击即可自动 cp + 推 GitHub Pages。' : 'Скрипт синхронизации загружен.',
             'summary');
     });
 
@@ -6885,7 +7303,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 从备份恢复按钮点击事件
     document.getElementById('btn-restore-backup').addEventListener('click', function() {
         try {
-            var raw = localStorage.getItem('warehouse-auto-backups');
+            var raw = localStorage.getItem('warehouse-auto-backups-new');
             if (!raw) return;
             var backups = JSON.parse(raw);
             if (!Array.isArray(backups) || backups.length === 0) return;
@@ -6936,14 +7354,19 @@ function saveToGist(immediate) {
 // 实际执行 PATCH 的内部函数
 function _doSaveToGist() {
     if (_gistLoading) return;
+    if (!GIST_TOKEN) {
+        // 没有 Token 时静默跳过同步（不抛错，不阻塞用户操作）
+        updateSyncStatus('failed');
+        console.warn('Gist sync skipped: token not configured. Run setGistToken("ghp_...") in console.');
+        return;
+    }
     // 检查是否在限流等待期内
     var nowSec = Math.floor(Date.now() / 1000);
     if (_gistRateLimitedUntil > nowSec) {
         var waitSec = _gistRateLimitedUntil - nowSec;
         console.warn('Gist rate-limited, waiting ' + waitSec + 's');
-        localStorage.setItem('gist-pending-sync', 'true');
+        localStorage.setItem('gist-pending-sync-new', 'true');
         updateSyncStatus('pending');
-        // 在恢复时刻自动重试
         setTimeout(function() { _gistRateLimitedUntil = 0; _doSaveToGist(); }, (waitSec + 5) * 1000);
         return;
     }
@@ -6951,15 +7374,14 @@ function _doSaveToGist() {
     var data = {};
     for (var i = 0; i < localStorage.length; i++) {
         var key = localStorage.key(i);
+        // 安全：永远不上传 Token 分段到 Gist
+        if (key === '_tk_a-new' || key === '_tk_b-new' || key === '_tk_c-new') continue;
         data[key] = localStorage.getItem(key);
     }
-    data['_tk_a'] = TK_A;
-    data['_tk_b'] = TK_B;
-    data['_tk_c'] = TK_C;
     // 去重：payload 与上次成功上传相同时跳过
     var payload = JSON.stringify(data);
     if (payload === _gistLastSavePayload) {
-        localStorage.removeItem('gist-pending-sync');
+        localStorage.removeItem('gist-pending-sync-new');
         updateSyncStatus('synced');
         return;
     }
@@ -6983,7 +7405,7 @@ function _doSaveToGist() {
         }
         if (res.ok) {
             _gistLastSavePayload = payload;
-            localStorage.removeItem('gist-pending-sync');
+            localStorage.removeItem('gist-pending-sync-new');
             updateSyncStatus('synced');
         } else if (res.status === 403 || res.status === 429) {
             // 被限流：按 X-RateLimit-Reset 设定恢复时间
@@ -6994,7 +7416,7 @@ function _doSaveToGist() {
                 // 无 reset 头，默认等 5 分钟
                 _gistRateLimitedUntil = nowSec + 300;
             }
-            localStorage.setItem('gist-pending-sync', 'true');
+            localStorage.setItem('gist-pending-sync-new', 'true');
             updateSyncStatus('pending');
             // 计划在恢复时重试
             var waitFor = (_gistRateLimitedUntil - nowSec + 5);
@@ -7005,7 +7427,7 @@ function _doSaveToGist() {
         }
     }).catch(function(err) {
         console.warn('Gist sync error:', err);
-        localStorage.setItem('gist-pending-sync', 'true');
+        localStorage.setItem('gist-pending-sync-new', 'true');
         updateSyncStatus('pending');
         // 网络错误：30 秒后重试
         setTimeout(function() { _doSaveToGist(); }, 30000);
@@ -7016,7 +7438,7 @@ function loadFromGist() {
     var rawUrl = 'https://gist.githubusercontent.com/chengbaojun37-code/' + GIST_ID + '/raw/' + GIST_FILENAME;
     // 获取本地 dataVersion，用于版本比较
     var localVersion = 0;
-    var localRaw = localStorage.getItem('warehouse-data');
+    var localRaw = localStorage.getItem('warehouse-data-new');
     if (localRaw) {
         try { var localData = JSON.parse(localRaw); localVersion = localData.dataVersion || 0; } catch(e) {}
     }
@@ -7031,15 +7453,15 @@ function loadFromGist() {
 
             // 始终从 Gist 加载 Token，不受版本检查影响
             if (data['_tk_a'] && data['_tk_b'] && data['_tk_c']) {
-                localStorage.setItem('_tk_a', data['_tk_a']);
-                localStorage.setItem('_tk_b', data['_tk_b']);
-                localStorage.setItem('_tk_c', data['_tk_c']);
+                localStorage.setItem('_tk_a-new', data['_tk_a']);
+                localStorage.setItem('_tk_b-new', data['_tk_b']);
+                localStorage.setItem('_tk_c-new', data['_tk_c']);
                 if (!GIST_TOKEN) { GIST_TOKEN = data['_tk_a'] + data['_tk_b'] + data['_tk_c']; }
             }
             // 始终强制写入本地 Token，确保 localStorage 永远有正确的分段 Token
-            localStorage.setItem('_tk_a', TK_A);
-            localStorage.setItem('_tk_b', TK_B);
-            localStorage.setItem('_tk_c', TK_C);
+            localStorage.setItem('_tk_a-new', TK_A);
+            localStorage.setItem('_tk_b-new', TK_B);
+            localStorage.setItem('_tk_c-new', TK_C);
 
             // 检测格式：旧格式顶层有 inventory 字段；新格式是 {'warehouse-data':'...', ...}
             var isOldFormat = data.inventory && Array.isArray(data.inventory) && data.inventory.length > 0;
@@ -7050,7 +7472,7 @@ function loadFromGist() {
                 var gistVersion = data.dataVersion || 0;
                 if (localVersion > 0 && localVersion >= gistVersion) {
                     _gistLoading = false;
-                    if (localVersion > gistVersion) { localStorage.setItem('gist-pending-sync', 'true'); }
+                    if (localVersion > gistVersion) { localStorage.setItem('gist-pending-sync-new', 'true'); }
                     updateSyncStatus('synced');
                     return true;
                 }
@@ -7059,7 +7481,8 @@ function loadFromGist() {
                 outboundHistory = data.outboundHistory || [];
                 operationLogs = data.operationLogs || [];
                 dataVersion = data.dataVersion || 0;
-                if (data.warehousePassword) warehousePassword = data.warehousePassword;
+                // 不再从 Gist 旧格式的 warehousePassword 字段覆盖变量，
+                // 否则用户之前改过密码但 Gist 里有缓存，会一直登不上
                 for (var gi = 0; gi < inventory.length; gi++) {
                     if (!inventory[gi].source) inventory[gi].source = 'cn';
                 }
@@ -7100,7 +7523,7 @@ function loadFromGist() {
                 if (data.hasOwnProperty(key)) {
                     if ((key === 'warehouse-data' || key === 'warehouse-auto-backups') && localVersion > 0 && (localVersion > gistWarehouseVersion || (localVersion === gistWarehouseVersion && !localOutboundCorrupted))) {
                         if (key === 'warehouse-data') hasWarehouseData = true;
-                        if (localVersion > gistWarehouseVersion) { localStorage.setItem('gist-pending-sync', 'true'); }
+                        if (localVersion > gistWarehouseVersion) { localStorage.setItem('gist-pending-sync-new', 'true'); }
                         continue;
                     }
                     localStorage.setItem(key, data[key]);
@@ -7110,7 +7533,7 @@ function loadFromGist() {
             if (!hasWarehouseData) {
                 // Gist 中无 warehouse-data，检查是否有 warehouse-auto-backups 备份
                 if (data['warehouse-auto-backups']) {
-                    localStorage.setItem('warehouse-auto-backups', data['warehouse-auto-backups']);
+                    localStorage.setItem('warehouse-auto-backups-new', data['warehouse-auto-backups']);
                     _gistLoading = false;
                     updateSyncStatus('synced');
                     return true;
@@ -7133,7 +7556,7 @@ function loadFromGist() {
             console.warn('Gist load error:', err);
             _gistLoading = false;
             // Gist 拉取失败时：如果 localStorage 中已有数据，标记为已同步（本地数据更可靠）
-            if (localStorage.getItem('warehouse-data')) {
+            if (localStorage.getItem('warehouse-data-new')) {
                 updateSyncStatus('synced');
             } else {
                 updateSyncStatus('failed');
@@ -7143,7 +7566,7 @@ function loadFromGist() {
 }
 
 function trySyncPending() {
-    if (localStorage.getItem('gist-pending-sync') === 'true') {
+    if (localStorage.getItem('gist-pending-sync-new') === 'true') {
         saveToGist();
     }
 }
@@ -7175,7 +7598,14 @@ function pollGistSync() {
             refreshAll();
             // 检测是否真的有新数据（版本号或日志数变化）
             if (dataVersion > beforeVersion || operationLogs.length > beforeLogCount) {
-                showSyncToast(currentLang === 'zh' ? '已同步其他设备的最新数据' : 'Синхронизировано');
+                if (window.IS_WEB_MODE) {
+                    // 网页版：显示更明显的同步提示（左侧 toast）
+                    showSyncToast(currentLang === 'zh'
+                        ? '✓ 已从桌面版同步 ' + (dataVersion - beforeVersion) + ' 项变更'
+                        : '✓ Синхронизировано ' + (dataVersion - beforeVersion));
+                } else {
+                    showSyncToast(currentLang === 'zh' ? '已同步其他设备的最新数据' : 'Синхронизировано');
+                }
             }
         }
         // 更新最后同步时间
@@ -7415,10 +7845,15 @@ document.addEventListener('focusout', function(e) {
         <div class="login-modal-body">
             <label for="login-password-input" id="login-password-label">密码</label>
             <input type="password" id="login-password-input" placeholder="请输入密码...">
+            <div id="login-default-pwd-hint" style="display:none; background:#fff3cd; color:#856404; border:1px solid #ffc107; border-radius:6px; padding:8px 12px; font-size:12px; margin-top:10px; line-height:1.5;">
+                ⚠️ <strong id="login-default-pwd-title">当前为默认密码</strong><br>
+                <span id="login-default-pwd-text">默认密码为 <code>admin123</code>，登录后请立即在"设置密码"中修改为强密码。</span>
+            </div>
             <div class="login-error" id="login-error"></div>
         </div>
         <div class="login-modal-footer">
             <button class="btn-guest" id="btn-login-guest">游客进入</button>
+            <button type="button" id="btn-login-reset" style="background:none;border:none;color:#7f8c8d;font-size:12px;text-decoration:underline;cursor:pointer;padding:4px 8px;margin-right:auto;" title="Gist 同步可能覆盖了密码，点击重置为 admin123">忘记密码？</button>
             <button class="btn btn-primary" id="btn-login-submit">登录</button>
         </div>
     </div>
