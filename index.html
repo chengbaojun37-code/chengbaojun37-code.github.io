@@ -567,7 +567,7 @@
             <input type="text" class="summary-search" id="summary-search" placeholder="搜索物料...">
             <button class="btn btn-outline btn-sm" id="btn-export-csv">导出CSV</button>
             <button class="btn btn-outline btn-sm" id="btn-export-excel">导出Excel</button>
-            <button class="btn btn-outline btn-sm admin-only" id="btn-export-json">导出完整数据(JSON)</button>
+            <button class="btn btn-outline btn-sm" id="btn-export-json">导出完整数据(JSON)</button>
             <button class="btn btn-outline btn-sm admin-only" id="btn-import-json">导入完整数据(JSON)</button>
             <input type="file" id="import-file-input" accept=".json" style="display:none;">
             <button class="btn btn-primary btn-sm admin-only" id="btn-insert-new-item">插入新物料</button>
@@ -729,7 +729,7 @@
                 <div class="form-group">
                     <label for="outbound-department" id="label-outbound-department">领用部门</label>
                     <input type="text" id="outbound-department" list="dept-list" autocomplete="off">
-                    <button type="button" class="btn-manage-dept admin-only" id="btn-manage-dept">管理</button>
+                    <button type="button" class="btn-manage-dept" id="btn-manage-dept">管理</button>
                     <datalist id="dept-list"></datalist>
                 </div>
             </div>
@@ -920,7 +920,7 @@ const translations = {
     zh: {
         headerTitle: '仓库出入库管理系统', tabInventory: '库存总览', tabSummary: '实时库存总表',
         tabInbound: '入库管理', tabOutbound: '出库管理', tabLog: '操作日志',
-        loginTitle: '登录', loginPasswordLabel: '密码', loginDesc: '请输入密码登录（131623 管理员 / admin123 只读），或直接进入游客模式', loginPasswordPlaceholder: '请输入密码...', btnLogin: '登录', btnGuest: '游客进入', statusAdmin: '管理员', statusGuest: '访客', btnLogout: '退出登录', btnLoginStatus: '登录', loginErrorWrong: '密码错误，请重试！', loginErrorEmpty: '请输入密码',
+        loginTitle: '登录', loginPasswordLabel: '密码', loginDesc: '请输入管理员密码，或直接进入游客模式', loginPasswordPlaceholder: '请输入密码...', btnLogin: '登录', btnGuest: '游客进入', statusAdmin: '管理员', statusGuest: '访客', btnLogout: '退出登录', btnLoginStatus: '登录', loginErrorWrong: '密码错误，请重试！', loginErrorEmpty: '请输入密码',
         statTotal: '总物料数', statLow: '库存不足', statExpiring: '即将过期', statExpired: '已过期',
         filterWarning: '仅显示预警物料', btnFilterLow: '仅显示库存不足', btnFilterExpiring: '仅显示保质期预警',
         sortLabel: '排序：', sortNone: '无', sortStock: '按库存状态', sortExpire: '按保质期状态',
@@ -1003,7 +1003,7 @@ const translations = {
     },
     ru: {
         headerTitle: 'Система управления складом',
-        loginTitle: 'Вход', loginPasswordLabel: 'Пароль', loginDesc: 'Введите пароль (131623 — админ / admin123 — чтение) или войдите как гость', loginPasswordPlaceholder: 'Введите пароль...', btnLogin: 'Войти', btnGuest: 'Гость', statusAdmin: 'Администратор', statusGuest: 'Гость', btnLogout: 'Выйти', btnLoginStatus: 'Войти', loginErrorWrong: 'Неверный пароль!', loginErrorEmpty: 'Введите пароль', tabInventory: 'Обзор запасов', tabSummary: 'Сводная таблица',
+        loginTitle: 'Вход', loginPasswordLabel: 'Пароль', loginDesc: 'Введите пароль администратора или войдите как гость', loginPasswordPlaceholder: 'Введите пароль...', btnLogin: 'Войти', btnGuest: 'Гость', statusAdmin: 'Администратор', statusGuest: 'Гость', btnLogout: 'Выйти', btnLoginStatus: 'Войти', loginErrorWrong: 'Неверный пароль!', loginErrorEmpty: 'Введите пароль', tabInventory: 'Обзор запасов', tabSummary: 'Сводная таблица',
         tabInbound: 'Приемка', tabOutbound: 'Отгрузка', tabLog: 'Журнал операций',
         statTotal: 'Всего материалов', statLow: 'Нехватка', statExpiring: 'Скоро истечет', statExpired: 'Просрочено',
         filterWarning: 'Показать только предупреждения', btnFilterLow: 'Только нехватка', btnFilterExpiring: 'Только срок годности',
@@ -1102,13 +1102,19 @@ let summarySubTab = 'all';
 let overviewSourceFilter = 'all';
 let summarySourceFilter = 'all'; // 当前实时库存子标签：'all' | 'SB' | 'PJ' | 'BC' | 'SC' | 'ZC'
 let pendingImportData = null;
-// 登录权限采用固定双密码机制（硬编码，与 localStorage 无关）：
-//   131623  -> 管理员（可编辑）
-//   admin123 -> 只读访客（仅查看）
-// warehousePassword 仅作为"清除数据密码"由"设置密码"功能维护，
-// 不再参与登录判断 —— 用户修改数据密码不会破坏双密码登录机制。
-const LOGIN_ADMIN_PASSWORD = '131623';
-const LOGIN_READONLY_PASSWORD = 'admin123';
+// 安全：保留向后兼容性 —— localStorage 没密码时使用默认 admin123，
+// 不再覆盖用户已有密码。这样已经能正常登录的用户不会被踢出。
+var _passwordNeedsReset = false;
+var _storedPwd = localStorage.getItem('warehousePassword-new');
+if (!_storedPwd) {
+    // 首次访问：使用默认密码（保持旧行为，避免用户被踢出）
+    localStorage.setItem('warehousePassword-new', 'admin123');
+    _passwordNeedsReset = true;
+    console.warn('[Security] 首次启动，使用默认密码 admin123。请在"设置密码"中立即修改！');
+} else if (_storedPwd === 'admin123') {
+    _passwordNeedsReset = true;
+    console.warn('[Security] 当前仍是默认密码 admin123，请在"设置密码"中修改为强密码。');
+}
 let warehousePassword = localStorage.getItem('warehousePassword-new') || 'admin123';
 let backupTimer = null;
 let isEditing = false;
@@ -1143,16 +1149,20 @@ function showLoginModal() {
     document.getElementById('btn-login-guest').textContent = t.btnGuest;
     document.getElementById('login-error').classList.remove('show');
     document.getElementById('login-password-input').value = '';
-    // 登录提示：固定双密码说明（与"设置密码"功能无关）
+    // 安全提示：当前密码仍是默认 admin123 时，提醒用户修改
     var hintEl = document.getElementById('login-default-pwd-hint');
     if (hintEl) {
-        hintEl.style.display = 'block';
-        var titleEl = document.getElementById('login-default-pwd-title');
-        var textEl = document.getElementById('login-default-pwd-text');
-        if (titleEl) titleEl.textContent = currentLang === 'zh' ? '登录密码说明' : 'Пароли для входа';
-        if (textEl) textEl.innerHTML = currentLang === 'zh'
-            ? '管理员密码 <code>131623</code>（可编辑）｜只读密码 <code>admin123</code>（仅查看）。'
-            : 'Администратор: <code>131623</code> (редактирование) ｜ Чтение: <code>admin123</code> (только просмотр).';
+        if (warehousePassword === 'admin123') {
+            hintEl.style.display = 'block';
+            var titleEl = document.getElementById('login-default-pwd-title');
+            var textEl = document.getElementById('login-default-pwd-text');
+            if (titleEl) titleEl.textContent = currentLang === 'zh' ? '当前为默认密码' : 'Используется пароль по умолчанию';
+            if (textEl) textEl.innerHTML = currentLang === 'zh'
+                ? '默认密码为 <code>admin123</code>，登录后请立即在"设置密码"中修改为强密码。'
+                : 'Пароль по умолчанию: <code>admin123</code>. Смените его после входа.';
+        } else {
+            hintEl.style.display = 'none';
+        }
     }
     document.getElementById('login-modal-overlay').classList.remove('hidden');
     document.getElementById('login-password-input').focus();
@@ -1170,17 +1180,13 @@ function loginAsAdmin() {
         document.getElementById('login-error').classList.add('show');
         return;
     }
-    // 固定双密码校验（硬编码，不依赖 localStorage）：
-    //   131623 -> 管理员（可编辑）；admin123 -> 只读访客（仅查看）；其他 -> 统一密码错误
-    var pwd = input.value;
-    if (pwd === LOGIN_ADMIN_PASSWORD) {
+    // 安全：登录时直接从 localStorage 读最新密码，不用变量
+    // （变量可能在 loadFromGist/loadAllData 后被覆盖）
+    var currentPwd = localStorage.getItem('warehousePassword-new') || 'admin123';
+    if (input.value === currentPwd) {
         isAdmin = true;
+        warehousePassword = currentPwd; // 同步更新变量
         sessionStorage.setItem('warehouse-is-admin-new', 'true');
-        hideLoginModal();
-        updateRoleUI();
-    } else if (pwd === LOGIN_READONLY_PASSWORD) {
-        isAdmin = false;
-        sessionStorage.setItem('warehouse-is-admin-new', 'false');
         hideLoginModal();
         updateRoleUI();
     } else {
@@ -1453,7 +1459,6 @@ function exportToExcel() {
 }
 
 function exportFullJSON() {
-    if (!isAdmin) return;
     const data = {
         version: dataVersion,
         exportTime: new Date().toISOString(),
@@ -1545,7 +1550,6 @@ function showImportPreview(data) {
 }
 
 function executeImport(data) {
-    if (!isAdmin) return;
     const t = translations[currentLang];
     const existCodes = new Map(inventory.map(function(item) { return [item.code, item]; }));
 
@@ -2047,7 +2051,6 @@ function saveAllData() {
 }
 
 function clearAllData() {
-    if (!isAdmin) return;
     const t = translations[currentLang];
     showPasswordModal(function() {
         localStorage.removeItem('warehouse-data-new');
@@ -2141,7 +2144,6 @@ function showSetPasswordModal() {
 let insertImageData = null;
 
 function showInsertModal() {
-    if (!isAdmin) return;
     const t = translations[currentLang];
     const overlay = document.getElementById('insert-modal-overlay');
     document.getElementById('insert-modal-title').textContent = t.insertModalTitle;
@@ -2197,7 +2199,6 @@ function closeInsertModal() {
 }
 
 function handleInsertSubmit() {
-    if (!isAdmin) { closeInsertModal(); return; }
     const t = translations[currentLang];
     const code = document.getElementById('insert-code').value.trim();
     const name = document.getElementById('insert-name').value.trim();
@@ -6542,12 +6543,12 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('login-password-input').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') loginAsAdmin();
     });
-    // 忘记"清除数据密码"：一键重置为 admin123（不影响登录双密码 131623/admin123）
+    // 忘记密码：一键重置为 admin123（解决 Gist 同步覆盖密码的问题）
     document.getElementById('btn-login-reset').addEventListener('click', function() {
         var isZh = currentLang === 'zh';
         var ok = confirm(isZh
-            ? '确认将"清除数据密码"重置为 admin123？\n\n登录权限不受影响（管理员 131623 / 只读 admin123）。\n这会清掉当前所有本地数据，但 Gist 上的备份数据可以通过"操作日志"页的恢复按钮拉回来。'
-            : 'Сбросить пароль данных на admin123?\n\nПрава входа не изменятся (админ 131623 / чтение admin123).\nЭто очистит локальные данные. Резервную копию из Gist можно восстановить.');
+            ? '确认将管理员密码重置为 admin123？\n\n这会清掉当前所有本地数据，但 Gist 上的备份数据可以通过"操作日志"页的恢复按钮拉回来。'
+            : 'Сбросить пароль на admin123?\n\nЭто очистит локальные данные. Резервную копию из Gist можно восстановить.');
         if (!ok) return;
         // 清掉所有 localStorage（与"清除全部数据"一致），但保留 Gist 数据
         localStorage.clear();
@@ -6979,7 +6980,6 @@ function escapeHTMLAttr(str) {
     }
 
     function saveCustomDepartment(dept) {
-        if (!isAdmin) return;
         if (!dept || !dept.trim()) return;
         dept = normalizeDepartment(dept.trim());
         // 先从黑名单中移除（如果之前被删除过，手动输入即恢复）
@@ -7019,7 +7019,6 @@ function escapeHTMLAttr(str) {
 
     // 部门管理弹窗
     function showDeptManager() {
-        if (!isAdmin) return;
         var overlay = document.getElementById('dept-manager-overlay');
         var body = document.getElementById('dept-manager-body');
         var depts = getDepartmentList();
@@ -7052,7 +7051,6 @@ function escapeHTMLAttr(str) {
     }
 
     function removeDeptFromList(dept) {
-        if (!isAdmin) return;
         // 从 warehouse_dept_list 中移除（如果存在）
         var customList = [];
         try {
@@ -7496,9 +7494,10 @@ function loadFromGist() {
             }
 
             // 新格式：完整 localStorage 快照，直接逐 key 写入
-            // 版本比较：如果 Gist 中 warehouse-data 版本不高于本地，跳过该 key
+            // 版本比较：如果 Gist 中 warehouse-data / warehouse-data-new 版本不高于本地，跳过该 key
             // 例外：检测本地 outboundHistory 是否存在损坏的部门名，有则强制覆盖
             var gistWarehouseVersion = 0;
+            var gistNewWarehouseVersion = 0;
             var gistOutboundDeparts = {};
             if (data['warehouse-data']) {
                 try {
@@ -7508,6 +7507,12 @@ function loadFromGist() {
                         gistOutboundDeparts[r.department || ''] = 1;
                     });
                 } catch(e) { gistWarehouseVersion = -1; }
+            }
+            if (data['warehouse-data-new']) {
+                try {
+                    var gwdn = JSON.parse(data['warehouse-data-new']);
+                    gistNewWarehouseVersion = gwdn.dataVersion || 0;
+                } catch(e) { gistNewWarehouseVersion = -1; }
             }
             var localOutboundCorrupted = false;
             if (localVersion > 0 && localVersion === gistWarehouseVersion && Object.keys(gistOutboundDeparts).length > 0) {
@@ -7523,13 +7528,14 @@ function loadFromGist() {
             var hasWarehouseData = false;
             for (var key in data) {
                 if (data.hasOwnProperty(key)) {
-                    if ((key === 'warehouse-data' || key === 'warehouse-auto-backups') && localVersion > 0 && (localVersion > gistWarehouseVersion || (localVersion === gistWarehouseVersion && !localOutboundCorrupted))) {
-                        if (key === 'warehouse-data') hasWarehouseData = true;
-                        if (localVersion > gistWarehouseVersion) { localStorage.setItem('gist-pending-sync-new', 'true'); }
+                    var keyGistVer = (key === 'warehouse-data-new') ? gistNewWarehouseVersion : gistWarehouseVersion;
+                    if ((key === 'warehouse-data' || key === 'warehouse-data-new' || key === 'warehouse-auto-backups') && localVersion > 0 && (localVersion > keyGistVer || (localVersion === keyGistVer && !localOutboundCorrupted))) {
+                        if (key === 'warehouse-data' || key === 'warehouse-data-new') hasWarehouseData = true;
+                        if (localVersion > keyGistVer) { localStorage.setItem('gist-pending-sync-new', 'true'); }
                         continue;
                     }
                     localStorage.setItem(key, data[key]);
-                    if (key === 'warehouse-data') hasWarehouseData = true;
+                    if (key === 'warehouse-data' || key === 'warehouse-data-new') hasWarehouseData = true;
                 }
             }
             if (!hasWarehouseData) {
@@ -7848,14 +7854,14 @@ document.addEventListener('focusout', function(e) {
             <label for="login-password-input" id="login-password-label">密码</label>
             <input type="password" id="login-password-input" placeholder="请输入密码...">
             <div id="login-default-pwd-hint" style="display:none; background:#fff3cd; color:#856404; border:1px solid #ffc107; border-radius:6px; padding:8px 12px; font-size:12px; margin-top:10px; line-height:1.5;">
-                🔐 <strong id="login-default-pwd-title">登录密码说明</strong><br>
-                <span id="login-default-pwd-text">管理员密码 <code>131623</code>（可编辑）｜只读密码 <code>admin123</code>（仅查看）。</span>
+                ⚠️ <strong id="login-default-pwd-title">当前为默认密码</strong><br>
+                <span id="login-default-pwd-text">默认密码为 <code>admin123</code>，登录后请立即在"设置密码"中修改为强密码。</span>
             </div>
             <div class="login-error" id="login-error"></div>
         </div>
         <div class="login-modal-footer">
             <button class="btn-guest" id="btn-login-guest">游客进入</button>
-            <button type="button" id="btn-login-reset" style="background:none;border:none;color:#7f8c8d;font-size:12px;text-decoration:underline;cursor:pointer;padding:4px 8px;margin-right:auto;" title="重置清除数据密码为 admin123（不影响登录双密码）">忘记数据密码？</button>
+            <button type="button" id="btn-login-reset" style="background:none;border:none;color:#7f8c8d;font-size:12px;text-decoration:underline;cursor:pointer;padding:4px 8px;margin-right:auto;" title="Gist 同步可能覆盖了密码，点击重置为 admin123">忘记密码？</button>
             <button class="btn btn-primary" id="btn-login-submit">登录</button>
         </div>
     </div>
