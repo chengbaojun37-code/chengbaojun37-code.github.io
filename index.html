@@ -892,7 +892,7 @@
 
 <script>
 
-const GIST_ID = "b466600d92c830492a8085fad0275ac2";
+const GIST_ID = "9cbeebe2a89b0a5865fc316c9cc0dc11";
 // 安全说明：旧版硬编码 GitHub Token 已移除 (CVE: 源码泄露 = Token 泄露)。
 // 首次使用时通过浏览器控制台执行一次 setGistToken('ghp_xxx') 注入；
 // Token 仅写入 localStorage，永远不再上传到 Gist 公共存储。
@@ -7372,11 +7372,23 @@ function _doSaveToGist() {
     }
     updateSyncStatus('syncing');
     var data = {};
+    // 新系统独立 Gist：只上传新系统相关键（-new 后缀键 + 公共白名单键），
+    // 严禁把原系统的 warehouse-data、warehousePassword、bablti-project-data 等旧键混入。
+    var NEW_SUFFIX = '-new';
+    var ALLOWED_COMMON_KEYS = {
+        'warehouse_dept_list': 1, 'warehouse_dept_blacklist': 1,
+        'warehouse-users': 1, 'warehouse-order-role': 1,
+        'warehouse-user': 1, 'zs|1|uuid': 1
+    };
     for (var i = 0; i < localStorage.length; i++) {
         var key = localStorage.key(i);
         // 安全：永远不上传 Token 分段到 Gist
         if (key === '_tk_a-new' || key === '_tk_b-new' || key === '_tk_c-new') continue;
-        data[key] = localStorage.getItem(key);
+        // 隔离：只允许 -new 后缀键与白名单公共键
+        var isNewKey = key.indexOf(NEW_SUFFIX) === key.length - NEW_SUFFIX.length;
+        if (isNewKey || ALLOWED_COMMON_KEYS[key]) {
+            data[key] = localStorage.getItem(key);
+        }
     }
     // 去重：payload 与上次成功上传相同时跳过
     var payload = JSON.stringify(data);
