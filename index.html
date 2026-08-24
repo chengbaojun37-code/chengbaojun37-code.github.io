@@ -70,6 +70,8 @@
         .btn-sm { padding: 6px 12px; font-size: 12px; }
         .btn-delete-row { background: none; border: none; color: var(--danger-color); font-size: 18px; font-weight: bold; cursor: pointer; padding: 0 8px; line-height: 1; transition: color 0.2s; }
         .btn-delete-row:hover { color: #78281f; }
+        .btn-edit-row { background: #4a90d9; border: none; color: #fff; font-size: 12px; cursor: pointer; padding: 3px 8px; border-radius: 4px; margin-right: 6px; transition: background 0.2s; }
+        .btn-edit-row:hover { background: #357abd; }
         .inventory-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
         .inventory-card { background: white; border: 2px solid #bdc3c7; border-radius: var(--border-radius); padding: 20px; box-shadow: var(--shadow); transition: all 0.3s; }
         .inventory-card:hover { transform: translateY(-5px); box-shadow: 0 5px 20px rgba(0,0,0,0.15); }
@@ -948,6 +950,33 @@
     </div>
 </div>
 
+<!-- ==================== 实时库存总表：修改物料数据弹窗 ==================== -->
+<div class="insert-modal-overlay" id="edit-item-modal-overlay">
+    <div class="insert-modal">
+        <h3 id="edit-item-modal-title">修改物料数据</h3>
+        <p class="modal-desc" id="edit-item-modal-desc">修改入库/出库/单价</p>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="edit-item-cumin" id="label-edit-item-cumin">累计入库</label>
+                <input type="number" id="edit-item-cumin" min="0" step="0.01">
+            </div>
+            <div class="form-group">
+                <label for="edit-item-cumout" id="label-edit-item-cumout">累计出库</label>
+                <input type="number" id="edit-item-cumout" min="0" step="0.01">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="edit-item-price" id="label-edit-item-price">采购单价(₽)</label>
+            <input type="number" id="edit-item-price" min="0" step="0.01">
+        </div>
+        <div class="modal-buttons">
+            <button class="btn btn-cancel" id="btn-edit-item-cancel">取消</button>
+            <button class="btn btn-submit" id="btn-edit-item-submit">确认修改</button>
+        </div>
+        <div class="error-msg" id="edit-item-error"></div>
+    </div>
+</div>
+
 <script>
 
 // ========== 同步后端：GitHub 仓库 Contents API（替代已失效的 Gist 写权限） ==========
@@ -1076,6 +1105,10 @@ const translations = {
         insertErrorCodeRequired: '物料编号不能为空', insertErrorNameRequired: '物料名称不能为空',
         insertErrorCodeDuplicate: '物料编号重复，请更换编号', insertSuccess: '新物料已添加',
         logTypeInsertItem: '插入物料',
+        btnEditItem: '修改', editItemModalTitle: '修改物料数据', editItemModalDesc: '修改 {0} {1} 的累计入库、累计出库和采购单价',
+        labelEditCumIn: '累计入库', labelEditCumOut: '累计出库', labelEditUnitPrice: '采购单价(₽)',
+        editItemErrorInvalid: '请输入有效的非负数字', editItemSuccess: '物料数据已修改',
+        logTypeEditItem: '修改物料数据',
         sthAction: '操作', deleteConfirm: '确定删除物料', logTypeDeleteItem: '删除物料',
         deleteLogConfirm: '确认删除这条记录？将同时恢复库存数量', deleteLogTitle: '删除记录', logColAction: '操作',
         catAll: '全部', catEquipment: '设备', catNewEquipment: '新设备', catOldEquipment: '旧设备', catParts: '配件', catPackaging: '包材', catFood: '食材', catSelfPurchase: '自采',
@@ -1168,6 +1201,10 @@ const translations = {
         insertErrorCodeRequired: 'Код материала обязателен', insertErrorNameRequired: 'Название обязательно',
         insertErrorCodeDuplicate: 'Код уже существует, используйте другой', insertSuccess: 'Материал добавлен',
         logTypeInsertItem: 'Добавление материала',
+        btnEditItem: 'Изменить', editItemModalTitle: 'Изменить данные материала', editItemModalDesc: 'Изменить приемку/отгрузку/цену для {0} {1}',
+        labelEditCumIn: 'Всего приемок', labelEditCumOut: 'Всего отгрузок', labelEditUnitPrice: 'Цена (₽)',
+        editItemErrorInvalid: 'Введите корректное неотрицательное число', editItemSuccess: 'Данные материала изменены',
+        logTypeEditItem: 'Изменить данные материала',
         sthAction: 'Действия', deleteConfirm: 'Удалить материал', logTypeDeleteItem: 'Удаление материала',
         deleteLogConfirm: 'Удалить эту запись? Количество на складе будет восстановлено', deleteLogTitle: 'Удалить запись', logColAction: 'Действие',
         catAll: 'Все', catEquipment: 'Оборудование', catNewEquipment: 'Новое оборудование', catOldEquipment: 'Старое оборудование', catParts: 'Запчасти', catPackaging: 'Упаковка', catFood: 'Продукты', catSelfPurchase: 'Самозакуп',
@@ -1502,7 +1539,7 @@ function renderSummary() {
             '<td class="td-proddate" data-code="'+item.code+'">'+(item.prodDate || '-')+'</td>'+
             '<td class="td-expdate" data-code="'+item.code+'">'+(item.expireDate || '-')+'</td>'+
             '<td class="'+expireCellClass+'">'+t['status'+es.charAt(0).toUpperCase()+es.slice(1)]+'</td>'+
-(isAdmin ? '<td><button class="btn-delete-row" onclick="deleteItem(\''+item.code+'\')" title="'+t.deleteConfirm+'">✕</button></td>' : '<td></td>');
+(isAdmin ? '<td><button class="btn-edit-row" onclick="openEditItemModal(\''+item.code+'\')" title="'+t.btnEditItem+'">'+t.btnEditItem+'</button><button class="btn-delete-row" onclick="deleteItem(\''+item.code+'\')" title="'+t.deleteConfirm+'">✕</button></td>' : '<td></td>');
         tbody.appendChild(tr);
     });
 
@@ -2855,6 +2892,73 @@ function editSourceItem(code, newSource) {
     return true;
 }
 
+// ========== 实时库存总表：修改物料数据（累计入库/累计出库/单价） ==========
+let _editItemCode = null;
+function openEditItemModal(code) {
+    if (!isAdmin) return;
+    const item = inventory.find(function(i) { return i.code === code; });
+    if (!item) return;
+    _editItemCode = code;
+    const t = translations[currentLang];
+    document.getElementById('edit-item-modal-title').textContent = t.editItemModalTitle;
+    document.getElementById('edit-item-modal-desc').textContent = t.editItemModalDesc.replace('{0}', code).replace('{1}', item.name);
+    document.getElementById('label-edit-item-cumin').textContent = t.labelEditCumIn;
+    document.getElementById('label-edit-item-cumout').textContent = t.labelEditCumOut;
+    document.getElementById('label-edit-item-price').textContent = t.labelEditUnitPrice;
+    document.getElementById('edit-item-cumin').value = item._cumIn || 0;
+    document.getElementById('edit-item-cumout').value = item._cumOut || 0;
+    document.getElementById('edit-item-price').value = (item.unitPrice != null && !isNaN(item.unitPrice)) ? item.unitPrice : '';
+    document.getElementById('edit-item-error').classList.remove('show');
+    document.getElementById('btn-edit-item-cancel').textContent = t.insertBtnCancel;
+    document.getElementById('btn-edit-item-submit').textContent = t.btnHistEdit;
+    document.getElementById('edit-item-modal-overlay').classList.add('show');
+}
+function closeEditItemModal() {
+    _editItemCode = null;
+    document.getElementById('edit-item-modal-overlay').classList.remove('show');
+    document.getElementById('edit-item-error').classList.remove('show');
+}
+function saveEditItemModal() {
+    if (!_editItemCode) return;
+    const t = translations[currentLang];
+    const cuminInput = document.getElementById('edit-item-cumin');
+    const cumoutInput = document.getElementById('edit-item-cumout');
+    const priceInput = document.getElementById('edit-item-price');
+    const newCumIn = parseFloat(cuminInput.value);
+    const newCumOut = parseFloat(cumoutInput.value);
+    const newPrice = priceInput.value === '' ? null : parseFloat(priceInput.value);
+    if (isNaN(newCumIn) || newCumIn < 0 || isNaN(newCumOut) || newCumOut < 0 || (newPrice !== null && (isNaN(newPrice) || newPrice < 0))) {
+        document.getElementById('edit-item-error').textContent = t.editItemErrorInvalid;
+        document.getElementById('edit-item-error').classList.add('show');
+        return;
+    }
+    editItemData(_editItemCode, newCumIn, newCumOut, newPrice);
+    closeEditItemModal();
+}
+function editItemData(code, newCumIn, newCumOut, newPrice) {
+    if (!isAdmin) return;
+    const item = inventory.find(function(i) { return i.code === code; });
+    if (!item) return false;
+    const oldCumIn = item._cumIn || 0;
+    const oldCumOut = item._cumOut || 0;
+    const oldPrice = item.unitPrice;
+    let changed = false;
+    if (newCumIn !== oldCumIn) { item._cumIn = newCumIn; changed = true; }
+    if (newCumOut !== oldCumOut) { item._cumOut = newCumOut; changed = true; }
+    if (newPrice !== null && newPrice !== oldPrice) { item.unitPrice = newPrice; changed = true; }
+    if (!changed) return false;
+    // 重新计算当前库存
+    item.stock = (item.initialStock || 0) + (item._cumIn || 0) - (item._cumOut || 0);
+    if (item.stock < 0) item.stock = 0;
+    const t = translations[currentLang];
+    const note = t.sthCumIn + ':' + oldCumIn + '→' + item._cumIn + ', ' + t.sthCumOut + ':' + oldCumOut + '→' + item._cumOut + ', ' + t.sthPrice + ':' + (oldPrice != null ? oldPrice : '-') + '→' + (item.unitPrice != null ? item.unitPrice : '-');
+    addLog(t.logTypeEditItem, code, '', note);
+    saveAllData();
+    refreshAll();
+    showAlert('success', t.editItemSuccess, 'summary');
+    return true;
+}
+
 // ========== 图片压缩工具 ==========
 // 将 File 对象压缩为 base64 JPEG DataURL，通过 callback 返回
 // maxWidth: 最大宽度(px)，quality: JPEG 质量(0-1)
@@ -4117,6 +4221,26 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('insert-modal-overlay').addEventListener('click', function(e) {
         if (e.target === this) closeInsertModal();
     });
+
+    // 修改物料数据弹窗
+    document.getElementById('btn-edit-item-cancel').addEventListener('click', closeEditItemModal);
+    document.getElementById('btn-edit-item-submit').addEventListener('click', saveEditItemModal);
+    document.getElementById('edit-item-modal-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closeEditItemModal();
+    });
+    document.getElementById('edit-item-cumin').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveEditItemModal(); }
+        else if (e.key === 'Escape') closeEditItemModal();
+    });
+    document.getElementById('edit-item-cumout').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveEditItemModal(); }
+        else if (e.key === 'Escape') closeEditItemModal();
+    });
+    document.getElementById('edit-item-price').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveEditItemModal(); }
+        else if (e.key === 'Escape') closeEditItemModal();
+    });
+
     document.getElementById('insert-code').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') document.getElementById('insert-name').focus();
     });
