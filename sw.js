@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260824j'; // v3.12.2 登录后重画表格
+const CACHE = 'wms-cache-v20260824k'; // v3.12.3 页面更新绕过HTTP缓存
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', function(e) {
@@ -29,9 +29,9 @@ self.addEventListener('activate', function(e) {
     );
 });
 
-function cacheWithNetworkUpdate(req) {
+function cacheWithNetworkUpdate(req, opts) {
     return caches.open(CACHE).then(function(cache) {
-        return fetch(req).then(function(res) {
+        return fetch(req, opts).then(function(res) {
             if (res && res.ok && res.type === 'basic') {
                 cache.put(req, res.clone());
             }
@@ -50,8 +50,9 @@ self.addEventListener('fetch', function(e) {
     if (req.method !== 'GET') return;
 
     // 导航请求（页面本身）永远网络优先并更新缓存
+    // v3.12.3：cache:'no-cache' 强制绕过浏览器 HTTP 缓存（GitHub Pages max-age=600 会让旧版页面驻留10分钟）
     if (req.mode === 'navigate') {
-        e.respondWith(cacheWithNetworkUpdate('./index.html'));
+        e.respondWith(cacheWithNetworkUpdate('./index.html', { cache: 'no-cache' }));
         return;
     }
     e.respondWith(cacheWithNetworkUpdate(req));
