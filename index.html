@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.5</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.6</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1052,6 +1052,8 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
+// v3.12.6：入库/出库记录的「修改」「删除」操作前需再次输入管理员密码（复用 showPasswordModal，
+//           与登录密码一致，默认 admin123；删除物料此前已有此机制），防止他人借登录态误改误删数据。
 // v3.12.5：修复 v3.12.4 回归——出库「修改」按钮点击无反应：getDepartmentList/saveCustomDepartment
 //           原定义在 DOMContentLoaded 闭包内，全局的 editOutboundRecord 调用时抛 ReferenceError。现已暴露到全局。
 //           新增出库记录「删除」按钮（管理员）：误录出库可直接删除（墓碑跨设备生效），库存自动回补，随后可重新出库。
@@ -2656,23 +2658,26 @@ function editInboundRecord(idx) {
     if (!isAdmin) { showAlert('error', t.histDeny, 'inbound'); return; }
     var r = inboundHistory[idx];
     if (!r) return;
-    var tip = (t.histEditPrompt || '修改入库数量（物料 {0} {1}）').replace('{0}', r.code).replace('{1}', r.name);
-    var val = prompt(tip, r.quantity);
-    if (val === null) return; // 用户取消
-    var q = parseFloat(String(val).trim().replace(',', '.'));
-    if (isNaN(q) || q < 0) { showAlert('error', t.histEditInvalid, 'inbound'); return; }
-    if (q === Number(r.quantity)) return; // 未变化
-    var oldKey = _genHistKey(r, 'in');
-    var oldQty = Number(r.quantity) || 0;
-    r.quantity = q;
-    // 旧记录键入墓碑：其他端仍持有旧数量记录，union 合并时需过滤
-    deletedHistKeys[oldKey] = Date.now();
-    _recomputeStockForCode(r.code);
-    addLog(currentLang === 'zh' ? '修改入库记录' : 'Изменение записи приемки', r.code,
-        oldQty + ' → ' + q, (r.date || '') + ' ' + (r.name || ''));
-    saveAllData();
-    refreshAll();
-    showAlert('success', t.histEditDone, 'inbound');
+    // v3.12.6：修改记录前需再次输入管理员密码（防误操作/他人操作）
+    showPasswordModal(function() {
+        var tip = (t.histEditPrompt || '修改入库数量（物料 {0} {1}）').replace('{0}', r.code).replace('{1}', r.name);
+        var val = prompt(tip, r.quantity);
+        if (val === null) return; // 用户取消
+        var q = parseFloat(String(val).trim().replace(',', '.'));
+        if (isNaN(q) || q < 0) { showAlert('error', t.histEditInvalid, 'inbound'); return; }
+        if (q === Number(r.quantity)) return; // 未变化
+        var oldKey = _genHistKey(r, 'in');
+        var oldQty = Number(r.quantity) || 0;
+        r.quantity = q;
+        // 旧记录键入墓碑：其他端仍持有旧数量记录，union 合并时需过滤
+        deletedHistKeys[oldKey] = Date.now();
+        _recomputeStockForCode(r.code);
+        addLog(currentLang === 'zh' ? '修改入库记录' : 'Изменение записи приемки', r.code,
+            oldQty + ' → ' + q, (r.date || '') + ' ' + (r.name || ''));
+        saveAllData();
+        refreshAll();
+        showAlert('success', t.histEditDone, 'inbound');
+    });
 }
 
 function deleteInboundRecord(idx) {
@@ -2680,33 +2685,36 @@ function deleteInboundRecord(idx) {
     if (!isAdmin) { showAlert('error', t.histDeny, 'inbound'); return; }
     var r = inboundHistory[idx];
     if (!r) return;
-    var msg = (t.histDelConfirm || '确认删除该入库记录？\n{0} {1} {2} × {3}')
-        .replace('{0}', r.date || '').replace('{1}', r.code || '')
-        .replace('{2}', r.name || '').replace('{3}', r.quantity);
-    if (!confirm(msg)) return;
-    var key = _genHistKey(r, 'in');
-    var code = r.code, qty = Number(r.quantity) || 0, rDate = r.date || '', rName = r.name || '';
-    deletedHistKeys[key] = Date.now();
-    inboundHistory.splice(idx, 1);
-    // 判断该物料是否还有剩余历史记录
-    var stillHas = false;
-    for (var i = 0; i < inboundHistory.length; i++) { if (inboundHistory[i].code === code) { stillHas = true; break; } }
-    if (!stillHas) { for (var j = 0; j < outboundHistory.length; j++) { if (outboundHistory[j].code === code) { stillHas = true; break; } } }
-    if (stillHas) {
-        _recomputeStockForCode(code);
-    } else {
-        // 最后一条历史被删：按差值手动调整（该次入库视为未发生）
-        var it = null;
-        for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === code) { it = inventory[k]; break; } }
-        if (it) {
-            it.stock = (Number(it.stock) || 0) - qty;
-            it._cumIn = Math.max(0, (Number(it._cumIn) || 0) - qty);
+    // v3.12.6：删除记录前需再次输入管理员密码（防误操作/他人操作）
+    showPasswordModal(function() {
+        var msg = (t.histDelConfirm || '确认删除该入库记录？\n{0} {1} {2} × {3}')
+            .replace('{0}', r.date || '').replace('{1}', r.code || '')
+            .replace('{2}', r.name || '').replace('{3}', r.quantity);
+        if (!confirm(msg)) return;
+        var key = _genHistKey(r, 'in');
+        var code = r.code, qty = Number(r.quantity) || 0, rDate = r.date || '', rName = r.name || '';
+        deletedHistKeys[key] = Date.now();
+        inboundHistory.splice(idx, 1);
+        // 判断该物料是否还有剩余历史记录
+        var stillHas = false;
+        for (var i = 0; i < inboundHistory.length; i++) { if (inboundHistory[i].code === code) { stillHas = true; break; } }
+        if (!stillHas) { for (var j = 0; j < outboundHistory.length; j++) { if (outboundHistory[j].code === code) { stillHas = true; break; } } }
+        if (stillHas) {
+            _recomputeStockForCode(code);
+        } else {
+            // 最后一条历史被删：按差值手动调整（该次入库视为未发生）
+            var it = null;
+            for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === code) { it = inventory[k]; break; } }
+            if (it) {
+                it.stock = (Number(it.stock) || 0) - qty;
+                it._cumIn = Math.max(0, (Number(it._cumIn) || 0) - qty);
+            }
         }
-    }
-    addLog(currentLang === 'zh' ? '删除入库记录' : 'Удаление записи приемки', code, '-' + qty, rDate + ' ' + rName);
-    saveAllData();
-    refreshAll();
-    showAlert('success', t.histDelDone, 'inbound');
+        addLog(currentLang === 'zh' ? '删除入库记录' : 'Удаление записи приемки', code, '-' + qty, rDate + ' ' + rName);
+        saveAllData();
+        refreshAll();
+        showAlert('success', t.histDelDone, 'inbound');
+    });
 }
 
 // v3.12：出库记录错误修改（管理员）。
@@ -2720,25 +2728,28 @@ function editOutboundRecord(idx) {
     if (!isAdmin) { showAlert('error', t.outHistDeny || t.histDeny, 'outbound'); return; }
     var r = outboundHistory[idx];
     if (!r) return;
-    _outEditIdx = idx;
-    var isZh = currentLang === 'zh';
-    document.getElementById('outbound-edit-title').textContent = isZh ? '修改出库记录' : 'Изменение записи отгрузки';
-    document.getElementById('outbound-edit-desc').textContent = isZh ? '修改任意字段后保存，库存将自动重算并同步到所有设备' : 'Измените любые поля и сохраните: склад пересчитается и синхронизируется';
-    document.getElementById('label-oe-date').textContent = isZh ? '日期 / 时间' : 'Дата / время';
-    document.getElementById('label-oe-code').textContent = isZh ? '物料编号' : 'Код материала';
-    document.getElementById('label-oe-name').textContent = isZh ? '物料名称' : 'Название';
-    document.getElementById('label-oe-quantity').textContent = isZh ? '数量' : 'Количество';
-    document.getElementById('label-oe-department').textContent = isZh ? '领用部门' : 'Отдел';
-    document.getElementById('label-oe-operator').textContent = isZh ? '操作人' : 'Оператор';
-    document.getElementById('btn-outbound-edit-cancel').textContent = isZh ? '取消' : 'Отмена';
-    document.getElementById('btn-outbound-edit-save').textContent = isZh ? '保存' : 'Сохранить';
-    document.getElementById('outbound-edit-date').value = r.date || '';
-    document.getElementById('outbound-edit-code').value = r.code || '';
-    document.getElementById('outbound-edit-name').value = r.name || '';
-    document.getElementById('outbound-edit-quantity').value = String(r.quantity);
-    _populateOutboundEditDepartment(r.department || '');
-    document.getElementById('outbound-edit-operator').value = r.operator || '';
-    document.getElementById('outbound-edit-overlay').classList.add('show');
+    // v3.12.6：修改记录前需再次输入管理员密码（防误操作/他人操作）
+    showPasswordModal(function() {
+        _outEditIdx = idx;
+        var isZh = currentLang === 'zh';
+        document.getElementById('outbound-edit-title').textContent = isZh ? '修改出库记录' : 'Изменение записи отгрузки';
+        document.getElementById('outbound-edit-desc').textContent = isZh ? '修改任意字段后保存，库存将自动重算并同步到所有设备' : 'Измените любые поля и сохраните: склад пересчитается и синхронизируется';
+        document.getElementById('label-oe-date').textContent = isZh ? '日期 / 时间' : 'Дата / время';
+        document.getElementById('label-oe-code').textContent = isZh ? '物料编号' : 'Код материала';
+        document.getElementById('label-oe-name').textContent = isZh ? '物料名称' : 'Название';
+        document.getElementById('label-oe-quantity').textContent = isZh ? '数量' : 'Количество';
+        document.getElementById('label-oe-department').textContent = isZh ? '领用部门' : 'Отдел';
+        document.getElementById('label-oe-operator').textContent = isZh ? '操作人' : 'Оператор';
+        document.getElementById('btn-outbound-edit-cancel').textContent = isZh ? '取消' : 'Отмена';
+        document.getElementById('btn-outbound-edit-save').textContent = isZh ? '保存' : 'Сохранить';
+        document.getElementById('outbound-edit-date').value = r.date || '';
+        document.getElementById('outbound-edit-code').value = r.code || '';
+        document.getElementById('outbound-edit-name').value = r.name || '';
+        document.getElementById('outbound-edit-quantity').value = String(r.quantity);
+        _populateOutboundEditDepartment(r.department || '');
+        document.getElementById('outbound-edit-operator').value = r.operator || '';
+        document.getElementById('outbound-edit-overlay').classList.add('show');
+    });
 }
 
 // v3.12.4：出库编辑弹窗部门改为下拉+自定义输入，避免移动端输入法/datalist取值失败
@@ -2857,35 +2868,38 @@ function deleteOutboundRecord(idx) {
     if (!isAdmin) { showAlert('error', t.outHistDeny || t.histDeny, 'outbound'); return; }
     var r = outboundHistory[idx];
     if (!r) return;
-    var msg = (t.outHistDelConfirm || '确认删除该出库记录？\n{0} {1} {2} × {3}')
-        .replace('{0}', r.date || '').replace('{1}', r.code || '')
-        .replace('{2}', r.name || '').replace('{3}', r.quantity)
-        .replace('{4}', normalizeDepartment(r.department || '') || (currentLang === 'zh' ? '未分类' : 'Без категории'));
-    if (!confirm(msg)) return;
-    var key = _genHistKey(r, 'out');
-    var code = r.code, qty = Number(r.quantity) || 0, rDate = r.date || '', rName = r.name || '', rDept = normalizeDepartment(r.department || '');
-    deletedHistKeys[key] = Date.now();
-    outboundHistory.splice(idx, 1);
-    // 判断该物料是否还有剩余历史记录
-    var stillHas = false;
-    for (var i = 0; i < outboundHistory.length; i++) { if (outboundHistory[i].code === code) { stillHas = true; break; } }
-    if (!stillHas) { for (var j = 0; j < inboundHistory.length; j++) { if (inboundHistory[j].code === code) { stillHas = true; break; } } }
-    if (stillHas) {
-        _recomputeStockForCode(code);
-    } else {
-        // 最后一条历史被删：出库视为未发生，库存手动回补差值
-        var it = null;
-        for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === code) { it = inventory[k]; break; } }
-        if (it) {
-            it.stock = (Number(it.stock) || 0) + qty;
-            it._cumOut = Math.max(0, (Number(it._cumOut) || 0) - qty);
+    // v3.12.6：删除记录前需再次输入管理员密码（防误操作/他人操作）
+    showPasswordModal(function() {
+        var msg = (t.outHistDelConfirm || '确认删除该出库记录？\n{0} {1} {2} × {3}')
+            .replace('{0}', r.date || '').replace('{1}', r.code || '')
+            .replace('{2}', r.name || '').replace('{3}', r.quantity)
+            .replace('{4}', normalizeDepartment(r.department || '') || (currentLang === 'zh' ? '未分类' : 'Без категории'));
+        if (!confirm(msg)) return;
+        var key = _genHistKey(r, 'out');
+        var code = r.code, qty = Number(r.quantity) || 0, rDate = r.date || '', rName = r.name || '', rDept = normalizeDepartment(r.department || '');
+        deletedHistKeys[key] = Date.now();
+        outboundHistory.splice(idx, 1);
+        // 判断该物料是否还有剩余历史记录
+        var stillHas = false;
+        for (var i = 0; i < outboundHistory.length; i++) { if (outboundHistory[i].code === code) { stillHas = true; break; } }
+        if (!stillHas) { for (var j = 0; j < inboundHistory.length; j++) { if (inboundHistory[j].code === code) { stillHas = true; break; } } }
+        if (stillHas) {
+            _recomputeStockForCode(code);
+        } else {
+            // 最后一条历史被删：出库视为未发生，库存手动回补差值
+            var it = null;
+            for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === code) { it = inventory[k]; break; } }
+            if (it) {
+                it.stock = (Number(it.stock) || 0) + qty;
+                it._cumOut = Math.max(0, (Number(it._cumOut) || 0) - qty);
+            }
         }
-    }
-    addLog(currentLang === 'zh' ? '删除出库记录' : 'Удаление записи отгрузки', code, '+' + qty,
-        rDate + ' ' + rName + (rDept ? ' [' + rDept + ']' : ''));
-    saveAllData();
-    refreshAll();
-    showAlert('success', t.outHistDelDone || t.histDelDone, 'outbound');
+        addLog(currentLang === 'zh' ? '删除出库记录' : 'Удаление записи отгрузки', code, '+' + qty,
+            rDate + ' ' + rName + (rDept ? ' [' + rDept + ']' : ''));
+        saveAllData();
+        refreshAll();
+        showAlert('success', t.outHistDelDone || t.histDelDone, 'outbound');
+    });
 }
 
 // ========== 自动备份 ==========
