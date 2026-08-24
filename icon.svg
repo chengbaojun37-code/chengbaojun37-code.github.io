@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#3498db"/>
+  <!-- 仓库屋顶 -->
+  <path d="M96 200 L256 120 L416 200 Z" fill="#2c3e50"/>
+  <!-- 仓库主体 -->
+  <rect x="120" y="200" width="272" height="192" rx="12" fill="#ecf0f1"/>
+  <!-- 门 -->
+  <rect x="224" y="288" width="64" height="104" rx="6" fill="#3498db"/>
+  <!-- 货架横线 -->
+  <rect x="144" y="232" width="224" height="10" rx="5" fill="#bdc3c7"/>
+  <rect x="144" y="332" width="224" height="10" rx="5" fill="#bdc3c7"/>
+  <!-- 入库箭头 -->
+  <path d="M150 256 h120 a16 16 0 0 1 0 32 h-120 a16 16 0 0 1 0-32 Z" fill="#27ae60"/>
+  <path d="M258 244 l28 22 l-28 22 Z" fill="#27ae60"/>
+</svg>
