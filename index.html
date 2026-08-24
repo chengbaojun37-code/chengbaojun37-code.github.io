@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.3</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.4</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -932,7 +932,9 @@
         </div>
         <div class="form-group">
             <label for="outbound-edit-department" id="label-oe-department">领用部门</label>
-            <input type="text" id="outbound-edit-department" list="dept-list" autocomplete="off">
+            <select id="outbound-edit-department-select" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></select>
+            <input type="text" id="outbound-edit-department-custom" style="display:none;width:100%;margin-top:8px;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px;" placeholder="输入新部门名称">
+            <input type="hidden" id="outbound-edit-department" value="">
         </div>
         <div class="form-group">
             <label for="outbound-edit-operator" id="label-oe-operator">操作人</label>
@@ -1050,6 +1052,10 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
+// v3.12.4：出库编辑弹窗的领用部门改为下拉选择框（含现有部门+未分类+新建部门），避免移动端输入法/datalist取值失败。
+//           自定义部门输入框在选择“新建部门”时出现，隐藏域实时同步最终值，保存逻辑不变。
+// v3.12.3：修复登录管理员后表格不重画导致修改按钮不出现的问题；同时 sw.js 取页面加 cache:'no-cache'，绕过 GitHub Pages 10 分钟 HTTP 缓存，确保版本更新立即可达。
+// v3.12.2：登录/退出管理员后均调用 refreshAll() 即时重画出库/入库操作列。
 // v3.12.1：出库记录编辑升级为全字段弹窗（管理员）。日期/物料编号/物料名称/数量/领用部门/操作人全部可改：
 //           ①编号改动时新旧编号库存都自动重算；②编号必须存在于库存（防错编号）；③数量/编号负库存预演拦截；
 //           ④名称留空自动按库存回填；⑤旧记录键入历史墓碑跨设备生效，新记录经 union 合并扩散到三端，操作日志留痕。
@@ -2723,9 +2729,41 @@ function editOutboundRecord(idx) {
     document.getElementById('outbound-edit-code').value = r.code || '';
     document.getElementById('outbound-edit-name').value = r.name || '';
     document.getElementById('outbound-edit-quantity').value = String(r.quantity);
-    document.getElementById('outbound-edit-department').value = r.department || '';
+    _populateOutboundEditDepartment(r.department || '');
     document.getElementById('outbound-edit-operator').value = r.operator || '';
     document.getElementById('outbound-edit-overlay').classList.add('show');
+}
+
+// v3.12.4：出库编辑弹窗部门改为下拉+自定义输入，避免移动端输入法/datalist取值失败
+function _populateOutboundEditDepartment(currentDept) {
+    var isZh = currentLang === 'zh';
+    var sel = document.getElementById('outbound-edit-department-select');
+    var custom = document.getElementById('outbound-edit-department-custom');
+    var hidden = document.getElementById('outbound-edit-department');
+    var depts = getDepartmentList();
+    var uncategorizedLabel = isZh ? '未分类 / Без категории' : 'Без категории / 未分类';
+    var newDeptLabel = isZh ? '➕ 新建部门 / Новый отдел' : '➕ Новый отдел / 新建部门';
+    var html = '<option value="">' + uncategorizedLabel + '</option>';
+    depts.forEach(function(d) {
+        html += '<option value="' + d.replace(/"/g, '&quot;') + '">' + d + '</option>';
+    });
+    html += '<option value="__custom__">' + newDeptLabel + '</option>';
+    sel.innerHTML = html;
+    currentDept = normalizeDepartment(currentDept);
+    if (!currentDept) {
+        sel.value = '';
+        custom.style.display = 'none';
+        custom.value = '';
+    } else if (depts.indexOf(currentDept) !== -1) {
+        sel.value = currentDept;
+        custom.style.display = 'none';
+        custom.value = '';
+    } else {
+        sel.value = '__custom__';
+        custom.style.display = 'block';
+        custom.value = currentDept;
+    }
+    hidden.value = currentDept;
 }
 function closeOutboundEditModal() {
     document.getElementById('outbound-edit-overlay').classList.remove('show');
@@ -2756,7 +2794,7 @@ function saveOutboundEditModal() {
     var nCode = document.getElementById('outbound-edit-code').value.trim();
     var nName = document.getElementById('outbound-edit-name').value.trim();
     var nQty = parseFloat(String(document.getElementById('outbound-edit-quantity').value).replace(',', '.'));
-    var nDept = normalizeDepartment(document.getElementById('outbound-edit-department').value) || '';
+    var nDept = normalizeDepartment(document.getElementById('outbound-edit-department').value);
     var nOper = document.getElementById('outbound-edit-operator').value.trim();
     // 校验
     if (!nDate) { showAlert('error', isZh ? '日期不能为空' : 'Дата не может быть пустой', 'outbound'); return; }
@@ -4459,6 +4497,23 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('outbound-edit-overlay').addEventListener('keydown', function(e) {
         if (e.key === 'Escape') closeOutboundEditModal();
         if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); saveOutboundEditModal(); }
+    });
+    // v3.12.4：部门下拉切换时同步隐藏域，自定义输入时实时同步
+    document.getElementById('outbound-edit-department-select').addEventListener('change', function(e) {
+        var custom = document.getElementById('outbound-edit-department-custom');
+        var hidden = document.getElementById('outbound-edit-department');
+        if (e.target.value === '__custom__') {
+            custom.style.display = 'block';
+            custom.focus();
+            hidden.value = custom.value.trim();
+        } else {
+            custom.style.display = 'none';
+            custom.value = '';
+            hidden.value = e.target.value;
+        }
+    });
+    document.getElementById('outbound-edit-department-custom').addEventListener('input', function(e) {
+        document.getElementById('outbound-edit-department').value = e.target.value.trim();
     });
 
     // 密码设置按钮
