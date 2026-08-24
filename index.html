@@ -525,7 +525,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.11.0</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.0</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -990,6 +990,9 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
+// v3.12.0：出库记录错误修改（管理员）。出库历史表（按部门分组）每行新增「修改」按钮：
+//           ①可修改出库数量（提交前预演重算，禁止把库存扣成负数）；②数量不变时可单独修改领用部门；
+//           旧记录键入历史墓碑跨设备生效，新记录经 union 合并扩散到三端，库存按出入库历史自动重算，操作日志留痕。
 // v3.11.0：三端同步与图片容量增强。①图片本地存储分离：图片不再内嵌 warehouse-data（双键重复存储），
 //           改存独立键 warehouse-images（单份），配额内可容纳图片数量翻倍以上，主数据永不因图片写入失败；
 //           ②云端图片分片上限 60→200 片（≈120MB，按每张压缩图 5~40KB 估算可容纳数千张）；
@@ -1048,6 +1051,9 @@ const translations = {
         histEditPrompt: '修改入库数量（物料 {0} {1}）', histEditInvalid: '数量无效，请输入非负数字',
         histEditDone: '入库记录已修改，库存已重算', histDelConfirm: '确认删除该入库记录？\n{0} {1} {2} × {3}\n删除后该物料库存将自动重算。',
         histDelDone: '入库记录已删除，库存已重算', histDeny: '仅管理员可操作入库记录',
+        outHistEditPrompt: '修改出库数量（物料 {0} {1}，当前 {2}）', outHistEditInvalid: '数量无效，请输入非负数字',
+        outHistEditDone: '出库记录已修改，库存已重算', outHistEditNegative: '修改后库存将变为负数（{0}），请先补录入库或减小出库数量',
+        outHistDeny: '仅管理员可操作出库记录', outHistDeptPrompt: '是否同时修改领用部门？\n当前部门：{0}\n输入新部门名称，留空或不变则不修改，点击「取消」退出。',
         thDateOut: '日期', thCodeOut: '物料编号', thNameOut: '物料名称', thQuantityOut: '数量',
         thDepartment: '领用部门', thOperatorOut: '操作人',
         inboundHistory: '入库记录', outboundHistory: '出库记录',
@@ -1144,6 +1150,9 @@ const translations = {
         histEditPrompt: 'Изменить количество приемки (материал {0} {1})', histEditInvalid: 'Неверное количество',
         histEditDone: 'Запись изменена, склад пересчитан', histDelConfirm: 'Удалить эту запись приемки?\n{0} {1} {2} × {3}\nЗапас будет пересчитан.',
         histDelDone: 'Запись удалена, склад пересчитан', histDeny: 'Только администратор может изменять записи',
+        outHistEditPrompt: 'Изменить количество отгрузки (материал {0} {1}, текущее {2})', outHistEditInvalid: 'Неверное количество',
+        outHistEditDone: 'Запись отгрузки изменена, склад пересчитан', outHistEditNegative: 'После изменения запас станет отрицательным ({0}), сначала добавьте приемку или уменьшите количество',
+        outHistDeny: 'Только администратор может изменять записи отгрузки', outHistDeptPrompt: 'Изменить отдел?\nТекущий: {0}\nВведите новый отдел; пусто или без изменений — не менять, «Отмена» — выход.',
         thDateOut: 'Дата', thCodeOut: 'Код', thNameOut: 'Наименование', thQuantityOut: 'Количество',
         thDepartment: 'Отдел', thOperatorOut: 'Оператор',
         inboundHistory: 'История приемки', outboundHistory: 'История отгрузки',
@@ -1941,13 +1950,13 @@ function renderHistoryTables() {
             (currentLang === 'zh' ? '暂无出库记录' : 'Нет записей отгрузки') + '</p>';
     } else {
         var deptGroups = {};
-        outboundHistory.forEach(function(record) {
+        outboundHistory.forEach(function(record, _oi) {
             var dept = normalizeDepartment(record.department);
             if (!dept || dept.trim() === '') {
                 dept = currentLang === 'zh' ? '未分类' : 'Без категории';
             }
             if (!deptGroups[dept]) deptGroups[dept] = [];
-            deptGroups[dept].push(record);
+            deptGroups[dept].push({ r: record, i: _oi }); // v3.12：携带原始索引，供修改按钮定位记录
         });
         var deptNames = Object.keys(deptGroups).sort();
         deptNames.forEach(function(dept) {
@@ -1965,12 +1974,20 @@ function renderHistoryTables() {
             table.className = 'table';
             table.innerHTML = '<thead><tr><th id="th-date-out">日期</th><th id="th-code-out">物料编号</th>' +
                 '<th id="th-name-out">物料名称</th><th id="th-quantity-out">数量</th><th id="th-unit-out">单位 / Ед.изм.</th>' +
-                '<th id="th-department">领用部门</th><th id="th-operator-out">操作人</th></tr></thead><tbody></tbody>';
+                '<th id="th-department">领用部门</th><th id="th-operator-out">操作人</th>' +
+                (isAdmin ? '<th>' + t.thAction + '</th>' : '') + '</tr></thead><tbody></tbody>';
             var tbody = table.querySelector('tbody');
-            deptGroups[dept].forEach(function(record) {
+            deptGroups[dept].forEach(function(entry) {
+                var record = entry.r;
+                // v3.12：管理员可修改出库记录（数量/领用部门），库存自动重算并跨设备同步
+                var actHtml = '-';
+                if (isAdmin) {
+                    actHtml = '<button type="button" onclick="editOutboundRecord(' + entry.i + ')" style="padding:3px 10px;font-size:12px;border:1px solid #4a90d9;background:#4a90d9;color:#fff;border-radius:4px;cursor:pointer;">' + t.btnHistEdit + '</button>';
+                }
                 var tr = document.createElement('tr');
                 tr.innerHTML = '<td>'+record.date+'</td><td>'+record.code+'</td><td>'+record.name+'</td>' +
-                    '<td>'+record.quantity+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+normalizeDepartment(record.department||'-')+'</td><td>'+record.operator+'</td>';
+                    '<td>'+record.quantity+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+normalizeDepartment(record.department||'-')+'</td><td>'+record.operator+'</td>' +
+                    (isAdmin ? '<td style="white-space:nowrap;">'+actHtml+'</td>' : '');
                 tbody.appendChild(tr);
             });
             sectionDiv.appendChild(table);
@@ -2611,6 +2628,61 @@ function deleteInboundRecord(idx) {
     saveAllData();
     refreshAll();
     showAlert('success', t.histDelDone, 'inbound');
+}
+
+// v3.12：出库记录错误修改（管理员）。
+// 支持两种修正：①改数量（自动校验不会把库存扣成负数）；②数量不变时单独改领用部门。
+// 旧记录键入墓碑（deletedHistKeys）→ 其他端同步时自动丢弃旧记录，新记录经 union 合并扩散；
+// 库存按出入库历史重算（_recomputeStockForCode），并写入操作日志留痕。
+function editOutboundRecord(idx) {
+    const t = translations[currentLang];
+    if (!isAdmin) { showAlert('error', t.outHistDeny || t.histDeny, 'outbound'); return; }
+    var r = outboundHistory[idx];
+    if (!r) return;
+    // ① 修改数量（prompt 取消 → 不做任何修改）
+    var tip = (t.outHistEditPrompt || '修改出库数量（物料 {0} {1}，当前 {2}）')
+        .replace('{0}', r.code).replace('{1}', r.name).replace('{2}', r.quantity);
+    var val = prompt(tip, r.quantity);
+    if (val === null) return;
+    var q = parseFloat(String(val).trim().replace(',', '.'));
+    if (isNaN(q) || q < 0) { showAlert('error', t.outHistEditInvalid || t.histEditInvalid, 'outbound'); return; }
+    var newDept = null;
+    if (q === Number(r.quantity)) {
+        // ② 数量不变 → 询问是否只改领用部门；部门也没变则无事发生
+        var deptTip = (t.outHistDeptPrompt || '是否同时修改领用部门？\n当前部门：{0}').replace('{0}', r.department || '-');
+        var d = prompt(deptTip, r.department || '');
+        if (d === null) return;
+        var dv = String(d).trim();
+        if (dv === '' || dv === String(r.department || '').trim()) return;
+        newDept = dv;
+    } else {
+        // 数量变化：预演重算，禁止负库存
+        var it = null;
+        for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === r.code) { it = inventory[k]; break; } }
+        if (it) {
+            var cin = 0, cout = 0;
+            inboundHistory.forEach(function(x) { if (x.code === r.code) cin += (Number(x.quantity) || 0); });
+            outboundHistory.forEach(function(x) { if (x.code === r.code) cout += (Number(x.quantity) || 0); });
+            var newStock = (Number(it.initialStock) || 0) + cin - (cout - (Number(r.quantity) || 0) + q);
+            if (newStock < 0) {
+                showAlert('error', (t.outHistEditNegative || '修改后库存将变为负数（{0}）').replace('{0}', newStock), 'outbound');
+                return;
+            }
+        }
+    }
+    var oldKey = _genHistKey(r, 'out');
+    var oldQty = Number(r.quantity) || 0;
+    r.quantity = q;
+    if (newDept !== null) r.department = newDept;
+    // 旧记录键入墓碑：其他端仍持有旧记录（旧数量/旧部门），union 合并时需过滤
+    deletedHistKeys[oldKey] = Date.now();
+    _recomputeStockForCode(r.code);
+    addLog(currentLang === 'zh' ? '修改出库记录' : 'Изменение записи отгрузки', r.code,
+        (newDept !== null ? (q !== oldQty ? oldQty + ' → ' + q + '，部门→' + newDept : '部门→' + newDept) : oldQty + ' → ' + q),
+        (r.date || '') + ' ' + (r.name || ''));
+    saveAllData();
+    refreshAll();
+    showAlert('success', t.outHistEditDone || t.histEditDone, 'outbound');
 }
 
 // ========== 自动备份 ==========
