@@ -222,6 +222,31 @@
         .password-modal .btn-cancel:hover { background: #d5dbdb; }
         .password-modal .error-msg { color: #e74c3c; font-size: 13px; margin-top: 10px; display: none; }
         .password-modal .error-msg.show { display: block; }
+        /* ===== v3.12.1：出库记录编辑弹窗 ===== */
+        .record-edit-modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;
+        }
+        .record-edit-modal-overlay.show { display: flex; }
+        .record-edit-modal {
+            background: #fff; border-radius: 12px; padding: 26px 30px; width: 420px; max-width: 94%;
+            max-height: 88vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .record-edit-modal h3 { margin: 0 0 6px 0; color: #2c3e50; font-size: 18px; }
+        .record-edit-modal .modal-desc { margin: 0 0 16px 0; color: #7f8c8d; font-size: 13px; }
+        .record-edit-modal .form-group { margin-bottom: 12px; text-align: left; }
+        .record-edit-modal .form-group label { display: block; font-size: 13px; color: #2c3e50; margin-bottom: 4px; font-weight: 600; }
+        .record-edit-modal .form-group input {
+            width: 100%; padding: 9px 12px; border: 2px solid #e0e0e0; border-radius: 8px;
+            font-size: 14px; outline: none; box-sizing: border-box;
+        }
+        .record-edit-modal .form-group input:focus { border-color: #4a90d9; }
+        .record-edit-modal .modal-buttons { margin-top: 18px; display: flex; gap: 10px; justify-content: center; }
+        .record-edit-modal .btn { padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; border: none; }
+        .record-edit-modal .btn-confirm { background: #4a90d9; color: #fff; }
+        .record-edit-modal .btn-confirm:hover { background: #357abd; }
+        .record-edit-modal .btn-cancel { background: #ecf0f1; color: #2c3e50; }
+        .record-edit-modal .btn-cancel:hover { background: #d5dbdb; }
         /* 密码设置区域 */
         .pwd-settings { display: flex; align-items: center; gap: 6px; }
         .pwd-settings .btn-pwd { padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
@@ -525,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.0</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.1</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -884,6 +909,41 @@
         <div class="error-msg" id="password-error"></div>
     </div>
 </div>
+<!-- ===== v3.12.1：出库记录编辑弹窗（全字段可改） ===== -->
+<div class="record-edit-modal-overlay" id="outbound-edit-overlay">
+    <div class="record-edit-modal">
+        <h3 id="outbound-edit-title">修改出库记录</h3>
+        <p class="modal-desc" id="outbound-edit-desc">修改任意字段后保存，库存将自动重算并同步到所有设备</p>
+        <div class="form-group">
+            <label for="outbound-edit-date" id="label-oe-date">日期 / 时间</label>
+            <input type="text" id="outbound-edit-date" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-code" id="label-oe-code">物料编号</label>
+            <input type="text" id="outbound-edit-code" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-name" id="label-oe-name">物料名称</label>
+            <input type="text" id="outbound-edit-name" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-quantity" id="label-oe-quantity">数量</label>
+            <input type="number" id="outbound-edit-quantity" min="0" step="0.01">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-department" id="label-oe-department">领用部门</label>
+            <input type="text" id="outbound-edit-department" list="dept-list" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-operator" id="label-oe-operator">操作人</label>
+            <input type="text" id="outbound-edit-operator" autocomplete="off">
+        </div>
+        <div class="modal-buttons">
+            <button class="btn btn-cancel" id="btn-outbound-edit-cancel">取消</button>
+            <button class="btn btn-confirm" id="btn-outbound-edit-save">保存</button>
+        </div>
+    </div>
+</div>
 <!-- ===== 插入新物料弹窗 ===== -->
 <div class="insert-modal-overlay" id="insert-modal-overlay">
     <div class="insert-modal">
@@ -990,6 +1050,9 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
+// v3.12.1：出库记录编辑升级为全字段弹窗（管理员）。日期/物料编号/物料名称/数量/领用部门/操作人全部可改：
+//           ①编号改动时新旧编号库存都自动重算；②编号必须存在于库存（防错编号）；③数量/编号负库存预演拦截；
+//           ④名称留空自动按库存回填；⑤旧记录键入历史墓碑跨设备生效，新记录经 union 合并扩散到三端，操作日志留痕。
 // v3.12.0：出库记录错误修改（管理员）。出库历史表（按部门分组）每行新增「修改」按钮：
 //           ①可修改出库数量（提交前预演重算，禁止把库存扣成负数）；②数量不变时可单独修改领用部门；
 //           旧记录键入历史墓碑跨设备生效，新记录经 union 合并扩散到三端，库存按出入库历史自动重算，操作日志留痕。
@@ -2634,54 +2697,107 @@ function deleteInboundRecord(idx) {
 // 支持两种修正：①改数量（自动校验不会把库存扣成负数）；②数量不变时单独改领用部门。
 // 旧记录键入墓碑（deletedHistKeys）→ 其他端同步时自动丢弃旧记录，新记录经 union 合并扩散；
 // 库存按出入库历史重算（_recomputeStockForCode），并写入操作日志留痕。
+var _outEditIdx = -1;
+// v3.12.1：出库记录全字段编辑弹窗（日期/编号/名称/数量/部门/操作人）
 function editOutboundRecord(idx) {
     const t = translations[currentLang];
     if (!isAdmin) { showAlert('error', t.outHistDeny || t.histDeny, 'outbound'); return; }
     var r = outboundHistory[idx];
     if (!r) return;
-    // ① 修改数量（prompt 取消 → 不做任何修改）
-    var tip = (t.outHistEditPrompt || '修改出库数量（物料 {0} {1}，当前 {2}）')
-        .replace('{0}', r.code).replace('{1}', r.name).replace('{2}', r.quantity);
-    var val = prompt(tip, r.quantity);
-    if (val === null) return;
-    var q = parseFloat(String(val).trim().replace(',', '.'));
-    if (isNaN(q) || q < 0) { showAlert('error', t.outHistEditInvalid || t.histEditInvalid, 'outbound'); return; }
-    var newDept = null;
-    if (q === Number(r.quantity)) {
-        // ② 数量不变 → 询问是否只改领用部门；部门也没变则无事发生
-        var deptTip = (t.outHistDeptPrompt || '是否同时修改领用部门？\n当前部门：{0}').replace('{0}', r.department || '-');
-        var d = prompt(deptTip, r.department || '');
-        if (d === null) return;
-        var dv = String(d).trim();
-        if (dv === '' || dv === String(r.department || '').trim()) return;
-        newDept = dv;
-    } else {
-        // 数量变化：预演重算，禁止负库存
-        var it = null;
-        for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === r.code) { it = inventory[k]; break; } }
-        if (it) {
-            var cin = 0, cout = 0;
-            inboundHistory.forEach(function(x) { if (x.code === r.code) cin += (Number(x.quantity) || 0); });
-            outboundHistory.forEach(function(x) { if (x.code === r.code) cout += (Number(x.quantity) || 0); });
-            var newStock = (Number(it.initialStock) || 0) + cin - (cout - (Number(r.quantity) || 0) + q);
-            if (newStock < 0) {
-                showAlert('error', (t.outHistEditNegative || '修改后库存将变为负数（{0}）').replace('{0}', newStock), 'outbound');
-                return;
-            }
-        }
+    _outEditIdx = idx;
+    var isZh = currentLang === 'zh';
+    document.getElementById('outbound-edit-title').textContent = isZh ? '修改出库记录' : 'Изменение записи отгрузки';
+    document.getElementById('outbound-edit-desc').textContent = isZh ? '修改任意字段后保存，库存将自动重算并同步到所有设备' : 'Измените любые поля и сохраните: склад пересчитается и синхронизируется';
+    document.getElementById('label-oe-date').textContent = isZh ? '日期 / 时间' : 'Дата / время';
+    document.getElementById('label-oe-code').textContent = isZh ? '物料编号' : 'Код материала';
+    document.getElementById('label-oe-name').textContent = isZh ? '物料名称' : 'Название';
+    document.getElementById('label-oe-quantity').textContent = isZh ? '数量' : 'Количество';
+    document.getElementById('label-oe-department').textContent = isZh ? '领用部门' : 'Отдел';
+    document.getElementById('label-oe-operator').textContent = isZh ? '操作人' : 'Оператор';
+    document.getElementById('btn-outbound-edit-cancel').textContent = isZh ? '取消' : 'Отмена';
+    document.getElementById('btn-outbound-edit-save').textContent = isZh ? '保存' : 'Сохранить';
+    document.getElementById('outbound-edit-date').value = r.date || '';
+    document.getElementById('outbound-edit-code').value = r.code || '';
+    document.getElementById('outbound-edit-name').value = r.name || '';
+    document.getElementById('outbound-edit-quantity').value = String(r.quantity);
+    document.getElementById('outbound-edit-department').value = r.department || '';
+    document.getElementById('outbound-edit-operator').value = r.operator || '';
+    document.getElementById('outbound-edit-overlay').classList.add('show');
+}
+function closeOutboundEditModal() {
+    document.getElementById('outbound-edit-overlay').classList.remove('show');
+    _outEditIdx = -1;
+}
+function _previewStockAfter(code, recordIdx, newRec) {
+    // 预演库存：该物料在记录 recordIdx 被 newRec 替换后的库存
+    var it = null;
+    for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === code) { it = inventory[k]; break; } }
+    if (!it) return 0; // 物料不存在（如编号改成不存在的物料）由保存前校验拦截
+    var cin = 0, cout = 0;
+    inboundHistory.forEach(function(x) { if (x.code === code) cin += (Number(x.quantity) || 0); });
+    outboundHistory.forEach(function(x, i) {
+        var q = Number(x.quantity) || 0;
+        if (x.code === code) cout += q;
+    });
+    var oldOut = (outboundHistory[recordIdx] && outboundHistory[recordIdx].code === code) ? (Number(outboundHistory[recordIdx].quantity) || 0) : 0;
+    var newOut = (newRec.code === code) ? (Number(newRec.quantity) || 0) : 0;
+    return (Number(it.initialStock) || 0) + cin - (cout - oldOut + newOut);
+}
+function saveOutboundEditModal() {
+    const t = translations[currentLang];
+    if (_outEditIdx < 0) return;
+    var r = outboundHistory[_outEditIdx];
+    if (!r) { closeOutboundEditModal(); return; }
+    var isZh = currentLang === 'zh';
+    var nDate = document.getElementById('outbound-edit-date').value.trim();
+    var nCode = document.getElementById('outbound-edit-code').value.trim();
+    var nName = document.getElementById('outbound-edit-name').value.trim();
+    var nQty = parseFloat(String(document.getElementById('outbound-edit-quantity').value).replace(',', '.'));
+    var nDept = normalizeDepartment(document.getElementById('outbound-edit-department').value) || '';
+    var nOper = document.getElementById('outbound-edit-operator').value.trim();
+    // 校验
+    if (!nDate) { showAlert('error', isZh ? '日期不能为空' : 'Дата не может быть пустой', 'outbound'); return; }
+    if (!nCode) { showAlert('error', isZh ? '物料编号不能为空' : 'Код материала не может быть пустым', 'outbound'); return; }
+    if (isNaN(nQty) || nQty < 0) { showAlert('error', t.outHistEditInvalid || t.histEditInvalid, 'outbound'); return; }
+    var invItem = null;
+    for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === nCode) { invItem = inventory[k]; break; } }
+    if (!invItem) {
+        showAlert('error', (isZh ? '物料编号 {0} 不存在，请填写库存中已有的编号' : 'Материал {0} не найден, укажите существующий код').replace('{0}', nCode), 'outbound');
+        return;
     }
+    if (!nName) nName = invItem.name || nCode; // 名称留空自动回填
+    if (!nOper) nOper = currentUser || (isZh ? '当前用户' : 'Текущий');
+    var newRec = { date: nDate, code: nCode, barcode: r.barcode || '', name: nName, quantity: nQty, department: nDept, operator: nOper };
+    // 负库存校验：检查受影响的物料（新编号；旧编号只减不增必安全）
+    var newStock = _previewStockAfter(nCode, _outEditIdx, newRec);
+    if (newStock < 0) {
+        showAlert('error', (t.outHistEditNegative || '修改后库存将变为负数（{0}）').replace('{0}', newStock), 'outbound');
+        return;
+    }
+    // 生成修改摘要（操作日志）
+    var changes = [];
+    if (nDate !== (r.date || '')) changes.push((isZh ? '日期→' : 'дата→') + nDate);
+    if (nCode !== (r.code || '')) changes.push((isZh ? '编号→' : 'код→') + nCode);
+    if (nName !== (r.name || '')) changes.push((isZh ? '名称→' : 'назв.→') + nName);
+    if (nQty !== Number(r.quantity)) changes.push((Number(r.quantity) || 0) + ' → ' + nQty);
+    if (nDept !== normalizeDepartment(r.department || '')) changes.push((isZh ? '部门→' : 'отдел→') + nDept);
+    if (nOper !== (r.operator || '')) changes.push((isZh ? '操作人→' : 'опер.→') + nOper);
+    if (changes.length === 0) { closeOutboundEditModal(); return; } // 无变化
+    var oldCode = r.code;
     var oldKey = _genHistKey(r, 'out');
-    var oldQty = Number(r.quantity) || 0;
-    r.quantity = q;
-    if (newDept !== null) r.department = newDept;
-    // 旧记录键入墓碑：其他端仍持有旧记录（旧数量/旧部门），union 合并时需过滤
+    // 应用修改
+    r.date = nDate; r.code = nCode; r.barcode = r.barcode || ''; r.name = nName;
+    r.quantity = nQty; r.department = nDept; r.operator = nOper;
+    // 旧记录键入墓碑：其他端仍持有旧记录，union 合并时过滤；新记录经合并扩散
     deletedHistKeys[oldKey] = Date.now();
-    _recomputeStockForCode(r.code);
-    addLog(currentLang === 'zh' ? '修改出库记录' : 'Изменение записи отгрузки', r.code,
-        (newDept !== null ? (q !== oldQty ? oldQty + ' → ' + q + '，部门→' + newDept : '部门→' + newDept) : oldQty + ' → ' + q),
-        (r.date || '') + ' ' + (r.name || ''));
+    // 库存重算（编号改动时新旧两个编号都要重算）
+    _recomputeStockForCode(oldCode);
+    if (nCode !== oldCode) _recomputeStockForCode(nCode);
+    if (nDept) saveCustomDepartment(nDept);
+    addLog(currentLang === 'zh' ? '修改出库记录' : 'Изменение записи отгрузки', nCode, changes.join('，'), nDate + ' ' + nName);
     saveAllData();
     refreshAll();
+    closeOutboundEditModal();
     showAlert('success', t.outHistEditDone || t.histEditDone, 'outbound');
 }
 
@@ -4329,6 +4445,17 @@ document.addEventListener('DOMContentLoaded', function() {
         refreshAll();
         saveAllData();
         this.reset();
+    });
+
+    // v3.12.1：出库记录编辑弹窗按钮
+    document.getElementById('btn-outbound-edit-cancel').addEventListener('click', closeOutboundEditModal);
+    document.getElementById('btn-outbound-edit-save').addEventListener('click', saveOutboundEditModal);
+    document.getElementById('outbound-edit-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closeOutboundEditModal();
+    });
+    document.getElementById('outbound-edit-overlay').addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeOutboundEditModal();
+        if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); saveOutboundEditModal(); }
     });
 
     // 密码设置按钮
