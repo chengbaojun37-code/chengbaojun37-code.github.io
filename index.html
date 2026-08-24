@@ -70,6 +70,8 @@
         .btn-sm { padding: 6px 12px; font-size: 12px; }
         .btn-delete-row { background: none; border: none; color: var(--danger-color); font-size: 18px; font-weight: bold; cursor: pointer; padding: 0 8px; line-height: 1; transition: color 0.2s; }
         .btn-delete-row:hover { color: #78281f; }
+        .btn-edit-row { background: #4a90d9; border: none; color: #fff; font-size: 12px; cursor: pointer; padding: 3px 8px; border-radius: 4px; margin-right: 6px; transition: background 0.2s; }
+        .btn-edit-row:hover { background: #357abd; }
         .inventory-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
         .inventory-card { background: white; border: 2px solid #bdc3c7; border-radius: var(--border-radius); padding: 20px; box-shadow: var(--shadow); transition: all 0.3s; }
         .inventory-card:hover { transform: translateY(-5px); box-shadow: 0 5px 20px rgba(0,0,0,0.15); }
@@ -220,6 +222,31 @@
         .password-modal .btn-cancel:hover { background: #d5dbdb; }
         .password-modal .error-msg { color: #e74c3c; font-size: 13px; margin-top: 10px; display: none; }
         .password-modal .error-msg.show { display: block; }
+        /* ===== v3.12.1：出库记录编辑弹窗 ===== */
+        .record-edit-modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;
+        }
+        .record-edit-modal-overlay.show { display: flex; }
+        .record-edit-modal {
+            background: #fff; border-radius: 12px; padding: 26px 30px; width: 420px; max-width: 94%;
+            max-height: 88vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .record-edit-modal h3 { margin: 0 0 6px 0; color: #2c3e50; font-size: 18px; }
+        .record-edit-modal .modal-desc { margin: 0 0 16px 0; color: #7f8c8d; font-size: 13px; }
+        .record-edit-modal .form-group { margin-bottom: 12px; text-align: left; }
+        .record-edit-modal .form-group label { display: block; font-size: 13px; color: #2c3e50; margin-bottom: 4px; font-weight: 600; }
+        .record-edit-modal .form-group input {
+            width: 100%; padding: 9px 12px; border: 2px solid #e0e0e0; border-radius: 8px;
+            font-size: 14px; outline: none; box-sizing: border-box;
+        }
+        .record-edit-modal .form-group input:focus { border-color: #4a90d9; }
+        .record-edit-modal .modal-buttons { margin-top: 18px; display: flex; gap: 10px; justify-content: center; }
+        .record-edit-modal .btn { padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; border: none; }
+        .record-edit-modal .btn-confirm { background: #4a90d9; color: #fff; }
+        .record-edit-modal .btn-confirm:hover { background: #357abd; }
+        .record-edit-modal .btn-cancel { background: #ecf0f1; color: #2c3e50; }
+        .record-edit-modal .btn-cancel:hover { background: #d5dbdb; }
         /* 密码设置区域 */
         .pwd-settings { display: flex; align-items: center; gap: 6px; }
         .pwd-settings .btn-pwd { padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
@@ -523,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.10.3</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.5</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -882,6 +909,43 @@
         <div class="error-msg" id="password-error"></div>
     </div>
 </div>
+<!-- ===== v3.12.1：出库记录编辑弹窗（全字段可改） ===== -->
+<div class="record-edit-modal-overlay" id="outbound-edit-overlay">
+    <div class="record-edit-modal">
+        <h3 id="outbound-edit-title">修改出库记录</h3>
+        <p class="modal-desc" id="outbound-edit-desc">修改任意字段后保存，库存将自动重算并同步到所有设备</p>
+        <div class="form-group">
+            <label for="outbound-edit-date" id="label-oe-date">日期 / 时间</label>
+            <input type="text" id="outbound-edit-date" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-code" id="label-oe-code">物料编号</label>
+            <input type="text" id="outbound-edit-code" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-name" id="label-oe-name">物料名称</label>
+            <input type="text" id="outbound-edit-name" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-quantity" id="label-oe-quantity">数量</label>
+            <input type="number" id="outbound-edit-quantity" min="0" step="0.01">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-department" id="label-oe-department">领用部门</label>
+            <select id="outbound-edit-department-select" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></select>
+            <input type="text" id="outbound-edit-department-custom" style="display:none;width:100%;margin-top:8px;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px;" placeholder="输入新部门名称">
+            <input type="hidden" id="outbound-edit-department" value="">
+        </div>
+        <div class="form-group">
+            <label for="outbound-edit-operator" id="label-oe-operator">操作人</label>
+            <input type="text" id="outbound-edit-operator" autocomplete="off">
+        </div>
+        <div class="modal-buttons">
+            <button class="btn btn-cancel" id="btn-outbound-edit-cancel">取消</button>
+            <button class="btn btn-confirm" id="btn-outbound-edit-save">保存</button>
+        </div>
+    </div>
+</div>
 <!-- ===== 插入新物料弹窗 ===== -->
 <div class="insert-modal-overlay" id="insert-modal-overlay">
     <div class="insert-modal">
@@ -948,6 +1012,33 @@
     </div>
 </div>
 
+<!-- ==================== 实时库存总表：修改物料数据弹窗 ==================== -->
+<div class="insert-modal-overlay" id="edit-item-modal-overlay">
+    <div class="insert-modal">
+        <h3 id="edit-item-modal-title">修改物料数据</h3>
+        <p class="modal-desc" id="edit-item-modal-desc">修改入库/出库/单价</p>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="edit-item-cumin" id="label-edit-item-cumin">累计入库</label>
+                <input type="number" id="edit-item-cumin" min="0" step="0.01">
+            </div>
+            <div class="form-group">
+                <label for="edit-item-cumout" id="label-edit-item-cumout">累计出库</label>
+                <input type="number" id="edit-item-cumout" min="0" step="0.01">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="edit-item-price" id="label-edit-item-price">采购单价(₽)</label>
+            <input type="number" id="edit-item-price" min="0" step="0.01">
+        </div>
+        <div class="modal-buttons">
+            <button class="btn btn-cancel" id="btn-edit-item-cancel">取消</button>
+            <button class="btn btn-submit" id="btn-edit-item-submit">确认修改</button>
+        </div>
+        <div class="error-msg" id="edit-item-error"></div>
+    </div>
+</div>
+
 <script>
 
 // ========== 同步后端：GitHub 仓库 Contents API（替代已失效的 Gist 写权限） ==========
@@ -961,14 +1052,31 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
-// v3.10.3：修复跨端同步三大问题——(1) 409 sha 冲突旧逻辑盲重 PUT 旧 payload 导致并发保存整文件互相覆盖，改为重新拉云端记录级合并后再上传；(2) lastModified 引入 Lamport 逻辑时钟（max(本机时钟, 已见最大时间戳+1)），防设备时钟偏差让旧数据反杀新修改；(3) 图片跨设备换图生效：本机图片已全部上传时，云端不同图片会更新本机旧图。
+// v3.12.5：修复 v3.12.4 回归——出库「修改」按钮点击无反应：getDepartmentList/saveCustomDepartment
+//           原定义在 DOMContentLoaded 闭包内，全局的 editOutboundRecord 调用时抛 ReferenceError。现已暴露到全局。
+//           新增出库记录「删除」按钮（管理员）：误录出库可直接删除（墓碑跨设备生效），库存自动回补，随后可重新出库。
+// v3.12.4：出库编辑弹窗的领用部门改为下拉选择框（含现有部门+未分类+新建部门），避免移动端输入法/datalist取值失败。
+//           自定义部门输入框在选择“新建部门”时出现，隐藏域实时同步最终值，保存逻辑不变。
+// v3.12.3：修复登录管理员后表格不重画导致修改按钮不出现的问题；同时 sw.js 取页面加 cache:'no-cache'，绕过 GitHub Pages 10 分钟 HTTP 缓存，确保版本更新立即可达。
+// v3.12.2：登录/退出管理员后均调用 refreshAll() 即时重画出库/入库操作列。
+// v3.12.1：出库记录编辑升级为全字段弹窗（管理员）。日期/物料编号/物料名称/数量/领用部门/操作人全部可改：
+//           ①编号改动时新旧编号库存都自动重算；②编号必须存在于库存（防错编号）；③数量/编号负库存预演拦截；
+//           ④名称留空自动按库存回填；⑤旧记录键入历史墓碑跨设备生效，新记录经 union 合并扩散到三端，操作日志留痕。
+// v3.12.0：出库记录错误修改（管理员）。出库历史表（按部门分组）每行新增「修改」按钮：
+//           ①可修改出库数量（提交前预演重算，禁止把库存扣成负数）；②数量不变时可单独修改领用部门；
+//           旧记录键入历史墓碑跨设备生效，新记录经 union 合并扩散到三端，库存按出入库历史自动重算，操作日志留痕。
+// v3.11.0：三端同步与图片容量增强。①图片本地存储分离：图片不再内嵌 warehouse-data（双键重复存储），
+//           改存独立键 warehouse-images（单份），配额内可容纳图片数量翻倍以上，主数据永不因图片写入失败；
+//           ②云端图片分片上限 60→200 片（≈120MB，按每张压缩图 5~40KB 估算可容纳数千张）；
+//           ③图片云端下载节流 45s→20s；④切回前台/pageshow 立即拉取远端，其它端的数据马上可见。
+// v3.10.2：实时库存总表删除「码编号」列；入库表单删除「供应商」并把「采购单价（卢布）」挪到「入库数量」后。
 // v3.10.0：入库管理表单的「物料分类」下拉中「设备」拆分为「新设备(XSB)」「旧设备(SB)」，与筛选子标签规则一致。
 // v3.9.9：移除入库/出库表单的码编号输入框，扫码按钮移到物料编号右侧，扫码直接识别并填入物料编号。
 // v3.9.8：库存总览页增加分类子标签（新设备XSB/旧设备SB/配件/包材/食材/自采），与实时库存总表一致。
 // v3.9.7：设备拆分。实时库存子标签「设备」拆为「新设备(编号前缀 XSB)」「旧设备(前缀 SB)」，按编号自动归类。
 const SYNC_IMG_FILE = "wms-sync-images.json";        // v3.9.4 旧版单文件（仅作迁移源）
 var SYNC_IMG_SHARD_LIMIT = 600000;                    // 每片 JSON 长度上限 ~600KB
-var SYNC_IMG_MAX_SHARDS = 60;                         // 分片数量上限（60 × 600KB ≈ 36MB）
+var SYNC_IMG_MAX_SHARDS = 200;                        // 分片数量上限（200 × 600KB ≈ 120MB，v3.11：60→200）
 function _imgShardFile(i) { return 'wms-sync-images-' + i + '.json'; }
 const SYNC_BRANCH = "main";
 // token 分段存储（避免完整密钥触发仓库推送保护；运行时拼接）
@@ -1015,6 +1123,10 @@ const translations = {
         histEditPrompt: '修改入库数量（物料 {0} {1}）', histEditInvalid: '数量无效，请输入非负数字',
         histEditDone: '入库记录已修改，库存已重算', histDelConfirm: '确认删除该入库记录？\n{0} {1} {2} × {3}\n删除后该物料库存将自动重算。',
         histDelDone: '入库记录已删除，库存已重算', histDeny: '仅管理员可操作入库记录',
+        outHistEditPrompt: '修改出库数量（物料 {0} {1}，当前 {2}）', outHistEditInvalid: '数量无效，请输入非负数字',
+        outHistEditDone: '出库记录已修改，库存已重算', outHistEditNegative: '修改后库存将变为负数（{0}），请先补录入库或减小出库数量',
+        outHistDeny: '仅管理员可操作出库记录', outHistDeptPrompt: '是否同时修改领用部门？\n当前部门：{0}\n输入新部门名称，留空或不变则不修改，点击「取消」退出。',
+        outHistDelConfirm: '确认删除该出库记录？\n{0} {1} {2} × {3}\n领用部门：{4}\n删除后该物料库存将自动回补。', outHistDelDone: '出库记录已删除，库存已重算',
         thDateOut: '日期', thCodeOut: '物料编号', thNameOut: '物料名称', thQuantityOut: '数量',
         thDepartment: '领用部门', thOperatorOut: '操作人',
         inboundHistory: '入库记录', outboundHistory: '出库记录',
@@ -1076,6 +1188,10 @@ const translations = {
         insertErrorCodeRequired: '物料编号不能为空', insertErrorNameRequired: '物料名称不能为空',
         insertErrorCodeDuplicate: '物料编号重复，请更换编号', insertSuccess: '新物料已添加',
         logTypeInsertItem: '插入物料',
+        btnEditItem: '修改', editItemModalTitle: '修改物料数据', editItemModalDesc: '修改 {0} {1} 的累计入库、累计出库和采购单价',
+        labelEditCumIn: '累计入库', labelEditCumOut: '累计出库', labelEditUnitPrice: '采购单价(₽)',
+        editItemErrorInvalid: '请输入有效的非负数字', editItemSuccess: '物料数据已修改',
+        logTypeEditItem: '修改物料数据',
         sthAction: '操作', deleteConfirm: '确定删除物料', logTypeDeleteItem: '删除物料',
         deleteLogConfirm: '确认删除这条记录？将同时恢复库存数量', deleteLogTitle: '删除记录', logColAction: '操作',
         catAll: '全部', catEquipment: '设备', catNewEquipment: '新设备', catOldEquipment: '旧设备', catParts: '配件', catPackaging: '包材', catFood: '食材', catSelfPurchase: '自采',
@@ -1107,6 +1223,10 @@ const translations = {
         histEditPrompt: 'Изменить количество приемки (материал {0} {1})', histEditInvalid: 'Неверное количество',
         histEditDone: 'Запись изменена, склад пересчитан', histDelConfirm: 'Удалить эту запись приемки?\n{0} {1} {2} × {3}\nЗапас будет пересчитан.',
         histDelDone: 'Запись удалена, склад пересчитан', histDeny: 'Только администратор может изменять записи',
+        outHistEditPrompt: 'Изменить количество отгрузки (материал {0} {1}, текущее {2})', outHistEditInvalid: 'Неверное количество',
+        outHistEditDone: 'Запись отгрузки изменена, склад пересчитан', outHistEditNegative: 'После изменения запас станет отрицательным ({0}), сначала добавьте приемку или уменьшите количество',
+        outHistDeny: 'Только администратор может изменять записи отгрузки', outHistDeptPrompt: 'Изменить отдел?\nТекущий: {0}\nВведите новый отдел; пусто или без изменений — не менять, «Отмена» — выход.',
+        outHistDelConfirm: 'Удалить эту запись отгрузки?\n{0} {1} {2} × {3}\nОтдел: {4}\nЗапас будет автоматически восстановлен.', outHistDelDone: 'Запись отгрузки удалена, склад пересчитан',
         thDateOut: 'Дата', thCodeOut: 'Код', thNameOut: 'Наименование', thQuantityOut: 'Количество',
         thDepartment: 'Отдел', thOperatorOut: 'Оператор',
         inboundHistory: 'История приемки', outboundHistory: 'История отгрузки',
@@ -1168,6 +1288,10 @@ const translations = {
         insertErrorCodeRequired: 'Код материала обязателен', insertErrorNameRequired: 'Название обязательно',
         insertErrorCodeDuplicate: 'Код уже существует, используйте другой', insertSuccess: 'Материал добавлен',
         logTypeInsertItem: 'Добавление материала',
+        btnEditItem: 'Изменить', editItemModalTitle: 'Изменить данные материала', editItemModalDesc: 'Изменить приемку/отгрузку/цену для {0} {1}',
+        labelEditCumIn: 'Всего приемок', labelEditCumOut: 'Всего отгрузок', labelEditUnitPrice: 'Цена (₽)',
+        editItemErrorInvalid: 'Введите корректное неотрицательное число', editItemSuccess: 'Данные материала изменены',
+        logTypeEditItem: 'Изменить данные материала',
         sthAction: 'Действия', deleteConfirm: 'Удалить материал', logTypeDeleteItem: 'Удаление материала',
         deleteLogConfirm: 'Удалить эту запись? Количество на складе будет восстановлено', deleteLogTitle: 'Удалить запись', logColAction: 'Действие',
         catAll: 'Все', catEquipment: 'Оборудование', catNewEquipment: 'Новое оборудование', catOldEquipment: 'Старое оборудование', catParts: 'Запчасти', catPackaging: 'Упаковка', catFood: 'Продукты', catSelfPurchase: 'Самозакуп',
@@ -1263,6 +1387,7 @@ function loginAsAdmin() {
         sessionStorage.setItem('warehouse-is-admin', 'true');
         hideLoginModal();
         updateRoleUI();
+        refreshAll(); // v3.12.2：登录后立即重画表格，让「修改/删除」按钮列马上出现
     } else {
         document.getElementById('login-error').textContent = t.loginErrorWrong;
         document.getElementById('login-error').classList.add('show');
@@ -1276,6 +1401,7 @@ function loginAsGuest() {
     sessionStorage.setItem('warehouse-is-admin', 'false');
     hideLoginModal();
     updateRoleUI();
+    refreshAll(); // v3.12.2：退出管理员后同样重画，按钮列即时消失
 }
 
 function toggleLoginState() {
@@ -1283,6 +1409,7 @@ function toggleLoginState() {
         isAdmin = false;
         sessionStorage.removeItem('warehouse-is-admin');
         updateRoleUI();
+        refreshAll(); // v3.12.2：切换身份后重画表格
     } else {
         showLoginModal();
     }
@@ -1502,7 +1629,7 @@ function renderSummary() {
             '<td class="td-proddate" data-code="'+item.code+'">'+(item.prodDate || '-')+'</td>'+
             '<td class="td-expdate" data-code="'+item.code+'">'+(item.expireDate || '-')+'</td>'+
             '<td class="'+expireCellClass+'">'+t['status'+es.charAt(0).toUpperCase()+es.slice(1)]+'</td>'+
-(isAdmin ? '<td><button class="btn-delete-row" onclick="deleteItem(\''+item.code+'\')" title="'+t.deleteConfirm+'">✕</button></td>' : '<td></td>');
+(isAdmin ? '<td><button class="btn-edit-row" onclick="openEditItemModal(\''+item.code+'\')" title="'+t.btnEditItem+'">'+t.btnEditItem+'</button><button class="btn-delete-row" onclick="deleteItem(\''+item.code+'\')" title="'+t.deleteConfirm+'">✕</button></td>' : '<td></td>');
         tbody.appendChild(tr);
     });
 
@@ -1900,13 +2027,13 @@ function renderHistoryTables() {
             (currentLang === 'zh' ? '暂无出库记录' : 'Нет записей отгрузки') + '</p>';
     } else {
         var deptGroups = {};
-        outboundHistory.forEach(function(record) {
+        outboundHistory.forEach(function(record, _oi) {
             var dept = normalizeDepartment(record.department);
             if (!dept || dept.trim() === '') {
                 dept = currentLang === 'zh' ? '未分类' : 'Без категории';
             }
             if (!deptGroups[dept]) deptGroups[dept] = [];
-            deptGroups[dept].push(record);
+            deptGroups[dept].push({ r: record, i: _oi }); // v3.12：携带原始索引，供修改按钮定位记录
         });
         var deptNames = Object.keys(deptGroups).sort();
         deptNames.forEach(function(dept) {
@@ -1924,12 +2051,22 @@ function renderHistoryTables() {
             table.className = 'table';
             table.innerHTML = '<thead><tr><th id="th-date-out">日期</th><th id="th-code-out">物料编号</th>' +
                 '<th id="th-name-out">物料名称</th><th id="th-quantity-out">数量</th><th id="th-unit-out">单位 / Ед.изм.</th>' +
-                '<th id="th-department">领用部门</th><th id="th-operator-out">操作人</th></tr></thead><tbody></tbody>';
+                '<th id="th-department">领用部门</th><th id="th-operator-out">操作人</th>' +
+                (isAdmin ? '<th>' + t.thAction + '</th>' : '') + '</tr></thead><tbody></tbody>';
             var tbody = table.querySelector('tbody');
-            deptGroups[dept].forEach(function(record) {
+            deptGroups[dept].forEach(function(entry) {
+                var record = entry.r;
+                // v3.12：管理员可修改出库记录（数量/领用部门），库存自动重算并跨设备同步
+                // v3.12.5：管理员可删除误录的出库记录（墓碑跨设备生效），删除后可重新出库
+                var actHtml = '-';
+                if (isAdmin) {
+                    actHtml = '<button type="button" onclick="editOutboundRecord(' + entry.i + ')" style="padding:3px 10px;font-size:12px;border:1px solid #4a90d9;background:#4a90d9;color:#fff;border-radius:4px;cursor:pointer;margin-right:4px;">' + t.btnHistEdit + '</button>' +
+                              '<button type="button" onclick="deleteOutboundRecord(' + entry.i + ')" style="padding:3px 10px;font-size:12px;border:1px solid #d9534f;background:#d9534f;color:#fff;border-radius:4px;cursor:pointer;">' + t.btnHistDelete + '</button>';
+                }
                 var tr = document.createElement('tr');
                 tr.innerHTML = '<td>'+record.date+'</td><td>'+record.code+'</td><td>'+record.name+'</td>' +
-                    '<td>'+record.quantity+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+normalizeDepartment(record.department||'-')+'</td><td>'+record.operator+'</td>';
+                    '<td>'+record.quantity+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+normalizeDepartment(record.department||'-')+'</td><td>'+record.operator+'</td>' +
+                    (isAdmin ? '<td style="white-space:nowrap;">'+actHtml+'</td>' : '');
                 tbody.appendChild(tr);
             });
             sectionDiv.appendChild(table);
@@ -2138,36 +2275,13 @@ function refreshAll() {
     renderLog();
 }
 
-// v3.10.3：Lamport 逻辑时钟 —— 打时间戳取 max(本机时钟, 本端见过的最大时间戳+1)。
-// 背景：跨端合并规则是 lastModified 新者胜，若某台设备时钟偏快（手机时间不准很常见），
-// 它的旧数据时间戳反而"更新"，轮询合并时会把其他端刚做的修改判为"旧"而覆盖（旧数据反杀新修改）。
-// 逻辑时钟保证：本端只要见过云端数据，之后的修改时间戳一定比云端已见数据大，新者胜规则不再被时钟偏差破坏。
-function _lamportNow() {
-    var n = Math.max(Date.now(), (window._maxSeenTs || 0) + 1);
-    if (n > (window._maxSeenTs || 0)) window._maxSeenTs = n;
-    return n;
-}
-// v3.10.3：扫描数据对象里出现过的最大 lastModified（物料/出入库/日志/删除墓碑），推进逻辑时钟基准
-function _trackMaxTs(obj) {
-    if (!obj) return;
-    var m = window._maxSeenTs || 0;
-    (obj.inventory || []).forEach(function(it) { if (it && it.lastModified && it.lastModified > m) m = it.lastModified; });
-    ['inboundHistory', 'outboundHistory', 'operationLogs'].forEach(function(k) {
-        (obj[k] || []).forEach(function(r) { var t = r && (r.lastModified || 0); if (t > m) m = t; });
-    });
-    var dm = obj.deletedAt;
-    if (dm) { for (var c in dm) { if (Object.prototype.hasOwnProperty.call(dm, c) && dm[c] > m) m = dm[c]; } }
-    window._maxSeenTs = m;
-}
-
 function saveAllData() {
     dataVersion++;
-    var _lmNow = _lamportNow();
     // 记录级合并：找出发生变化的物料并打 lastModified 时间戳（新增项序列化串为空也会被打上）
     inventory.forEach(function(it) {
         if (!it || !it.code) return;
         var s = JSON.stringify(it);
-        if (_prevInvSnap[it.code] !== s) { it.lastModified = _lmNow; }
+        if (_prevInvSnap[it.code] !== s) { it.lastModified = Date.now(); }
         _prevInvSnap[it.code] = s;
     });
     // 清理已不存在物料的快照，避免快照无限增长
@@ -2176,10 +2290,40 @@ function saveAllData() {
     for (var _sk in _prevInvSnap) { if (!_liveKeys[_sk]) delete _prevInvSnap[_sk]; }
     var _prevWD = _safeParse(localStorage.getItem('warehouse-data'));
     var _carryResetAt = (_prevWD && _prevWD.resetAt) ? _prevWD.resetAt : undefined;
+    // v3.11：图片分离存储 —— 图片不再内嵌 warehouse-data（且此前双键各存一份，等于 2 倍体积），
+    // 改存独立键 warehouse-images（单份）。localStorage 5MB 配额下可容纳的图片数量翻倍以上；
+    // 主数据文件保持轻量，永不因图片多而写入失败影响同步。图片写失败时仅告警不报错
+    // （图片仍在本机内存与云端分片中，轮询的 syncImagesFromCloud 会自动补回）。
+    var _imgStore = {};
+    try { _imgStore = JSON.parse(localStorage.getItem('warehouse-images') || '{}') || {}; } catch(e3) { _imgStore = {}; }
+    var _liveImgCodes = {};
+    var saveInventory = inventory.map(function(it) {
+        if (!it || typeof it !== 'object') return it;
+        var c = {};
+        for (var k in it) { if (Object.prototype.hasOwnProperty.call(it, k)) c[k] = it[k]; }
+        if (c.code && c.image && c.image.length > 100) {
+            _imgStore[c.code] = c.image;
+            _liveImgCodes[c.code] = 1;
+        }
+        c.image = '';
+        return c;
+    });
+    // 清理已删除物料的图片，防止图片存储无限增长
+    for (var _ik in _imgStore) { if (Object.prototype.hasOwnProperty.call(_imgStore, _ik) && !_liveImgCodes[_ik]) delete _imgStore[_ik]; }
+    function _stripHistImgs(arr) {
+        if (!Array.isArray(arr)) return arr;
+        return arr.map(function(r) {
+            if (!r || typeof r !== 'object' || !r.image) return r;
+            var c = {};
+            for (var kk in r) { if (Object.prototype.hasOwnProperty.call(r, kk)) c[kk] = r[kk]; }
+            c.image = '';
+            return c;
+        });
+    }
     const saveData = {
-        inventory: inventory,
-        inboundHistory: inboundHistory,
-        outboundHistory: outboundHistory,
+        inventory: saveInventory,
+        inboundHistory: _stripHistImgs(inboundHistory),
+        outboundHistory: _stripHistImgs(outboundHistory),
         operationLogs: operationLogs,
         deletedCodes: deletedCodes,
         deletedAt: deletedAtMap,
@@ -2192,6 +2336,20 @@ function saveAllData() {
     try {
         localStorage.setItem('warehouse-data', JSON.stringify(saveData));
         localStorage.setItem('warehouse-data-new', JSON.stringify(saveData));
+        try {
+            localStorage.setItem('warehouse-images', JSON.stringify(_imgStore));
+        } catch (eImg) {
+            // 图片键写满（配额）：剔除最早的图片后重试一次；再失败则放弃本地图片缓存（云端分片仍是完整源，可自动补回）
+            var _codes = Object.keys(_imgStore);
+            if (_codes.length > 20) {
+                try {
+                    var _keep = {};
+                    for (var _ki = Math.floor(_codes.length / 2); _ki < _codes.length; _ki++) { _keep[_codes[_ki]] = _imgStore[_codes[_ki]]; }
+                    localStorage.setItem('warehouse-images', JSON.stringify(_keep));
+                } catch (eImg2) {}
+            }
+            console.warn('saveAllData: 图片本地缓存写入失败（数据已安全，图片可从云端自动补回）', eImg && eImg.message);
+        }
         if (!_gistLoading) { saveToGist(); }
         else { localStorage.setItem('gist-pending-sync', 'true'); localStorage.setItem('gist-pending-sync-new', 'true'); }
         return true;
@@ -2465,7 +2623,7 @@ function deleteItem(code) { if (!isAdmin) return;
         // 删除墓碑：记录 code，合并时其他端据此过滤，避免被 Gist 旧数据"复活"
         // v3.9.2：同时记录删除时刻。若之后该编号被重新录入（lastModified 更新），合并时物料复活并撤墓碑
         if (deletedCodes.indexOf(code) === -1) deletedCodes.push(code);
-        deletedAtMap[code] = _lamportNow(); // v3.10.3：逻辑时钟，防时钟偏差端旧数据复活已删物料
+        deletedAtMap[code] = Date.now();
         saveAllData();
         addLog(t.logTypeDeleteItem, code, '-', (currentLang === 'zh' ? '删除物料: ' : 'Удалён материал: ') + item.name);
         refreshAll();
@@ -2549,6 +2707,185 @@ function deleteInboundRecord(idx) {
     saveAllData();
     refreshAll();
     showAlert('success', t.histDelDone, 'inbound');
+}
+
+// v3.12：出库记录错误修改（管理员）。
+// 支持两种修正：①改数量（自动校验不会把库存扣成负数）；②数量不变时单独改领用部门。
+// 旧记录键入墓碑（deletedHistKeys）→ 其他端同步时自动丢弃旧记录，新记录经 union 合并扩散；
+// 库存按出入库历史重算（_recomputeStockForCode），并写入操作日志留痕。
+var _outEditIdx = -1;
+// v3.12.1：出库记录全字段编辑弹窗（日期/编号/名称/数量/部门/操作人）
+function editOutboundRecord(idx) {
+    const t = translations[currentLang];
+    if (!isAdmin) { showAlert('error', t.outHistDeny || t.histDeny, 'outbound'); return; }
+    var r = outboundHistory[idx];
+    if (!r) return;
+    _outEditIdx = idx;
+    var isZh = currentLang === 'zh';
+    document.getElementById('outbound-edit-title').textContent = isZh ? '修改出库记录' : 'Изменение записи отгрузки';
+    document.getElementById('outbound-edit-desc').textContent = isZh ? '修改任意字段后保存，库存将自动重算并同步到所有设备' : 'Измените любые поля и сохраните: склад пересчитается и синхронизируется';
+    document.getElementById('label-oe-date').textContent = isZh ? '日期 / 时间' : 'Дата / время';
+    document.getElementById('label-oe-code').textContent = isZh ? '物料编号' : 'Код материала';
+    document.getElementById('label-oe-name').textContent = isZh ? '物料名称' : 'Название';
+    document.getElementById('label-oe-quantity').textContent = isZh ? '数量' : 'Количество';
+    document.getElementById('label-oe-department').textContent = isZh ? '领用部门' : 'Отдел';
+    document.getElementById('label-oe-operator').textContent = isZh ? '操作人' : 'Оператор';
+    document.getElementById('btn-outbound-edit-cancel').textContent = isZh ? '取消' : 'Отмена';
+    document.getElementById('btn-outbound-edit-save').textContent = isZh ? '保存' : 'Сохранить';
+    document.getElementById('outbound-edit-date').value = r.date || '';
+    document.getElementById('outbound-edit-code').value = r.code || '';
+    document.getElementById('outbound-edit-name').value = r.name || '';
+    document.getElementById('outbound-edit-quantity').value = String(r.quantity);
+    _populateOutboundEditDepartment(r.department || '');
+    document.getElementById('outbound-edit-operator').value = r.operator || '';
+    document.getElementById('outbound-edit-overlay').classList.add('show');
+}
+
+// v3.12.4：出库编辑弹窗部门改为下拉+自定义输入，避免移动端输入法/datalist取值失败
+function _populateOutboundEditDepartment(currentDept) {
+    var isZh = currentLang === 'zh';
+    var sel = document.getElementById('outbound-edit-department-select');
+    var custom = document.getElementById('outbound-edit-department-custom');
+    var hidden = document.getElementById('outbound-edit-department');
+    var depts = getDepartmentList();
+    var uncategorizedLabel = isZh ? '未分类 / Без категории' : 'Без категории / 未分类';
+    var newDeptLabel = isZh ? '➕ 新建部门 / Новый отдел' : '➕ Новый отдел / 新建部门';
+    var html = '<option value="">' + uncategorizedLabel + '</option>';
+    depts.forEach(function(d) {
+        html += '<option value="' + d.replace(/"/g, '&quot;') + '">' + d + '</option>';
+    });
+    html += '<option value="__custom__">' + newDeptLabel + '</option>';
+    sel.innerHTML = html;
+    currentDept = normalizeDepartment(currentDept);
+    if (!currentDept) {
+        sel.value = '';
+        custom.style.display = 'none';
+        custom.value = '';
+    } else if (depts.indexOf(currentDept) !== -1) {
+        sel.value = currentDept;
+        custom.style.display = 'none';
+        custom.value = '';
+    } else {
+        sel.value = '__custom__';
+        custom.style.display = 'block';
+        custom.value = currentDept;
+    }
+    hidden.value = currentDept;
+}
+function closeOutboundEditModal() {
+    document.getElementById('outbound-edit-overlay').classList.remove('show');
+    _outEditIdx = -1;
+}
+function _previewStockAfter(code, recordIdx, newRec) {
+    // 预演库存：该物料在记录 recordIdx 被 newRec 替换后的库存
+    var it = null;
+    for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === code) { it = inventory[k]; break; } }
+    if (!it) return 0; // 物料不存在（如编号改成不存在的物料）由保存前校验拦截
+    var cin = 0, cout = 0;
+    inboundHistory.forEach(function(x) { if (x.code === code) cin += (Number(x.quantity) || 0); });
+    outboundHistory.forEach(function(x, i) {
+        var q = Number(x.quantity) || 0;
+        if (x.code === code) cout += q;
+    });
+    var oldOut = (outboundHistory[recordIdx] && outboundHistory[recordIdx].code === code) ? (Number(outboundHistory[recordIdx].quantity) || 0) : 0;
+    var newOut = (newRec.code === code) ? (Number(newRec.quantity) || 0) : 0;
+    return (Number(it.initialStock) || 0) + cin - (cout - oldOut + newOut);
+}
+function saveOutboundEditModal() {
+    const t = translations[currentLang];
+    if (_outEditIdx < 0) return;
+    var r = outboundHistory[_outEditIdx];
+    if (!r) { closeOutboundEditModal(); return; }
+    var isZh = currentLang === 'zh';
+    var nDate = document.getElementById('outbound-edit-date').value.trim();
+    var nCode = document.getElementById('outbound-edit-code').value.trim();
+    var nName = document.getElementById('outbound-edit-name').value.trim();
+    var nQty = parseFloat(String(document.getElementById('outbound-edit-quantity').value).replace(',', '.'));
+    var nDept = normalizeDepartment(document.getElementById('outbound-edit-department').value);
+    var nOper = document.getElementById('outbound-edit-operator').value.trim();
+    // 校验
+    if (!nDate) { showAlert('error', isZh ? '日期不能为空' : 'Дата не может быть пустой', 'outbound'); return; }
+    if (!nCode) { showAlert('error', isZh ? '物料编号不能为空' : 'Код материала не может быть пустым', 'outbound'); return; }
+    if (isNaN(nQty) || nQty < 0) { showAlert('error', t.outHistEditInvalid || t.histEditInvalid, 'outbound'); return; }
+    var invItem = null;
+    for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === nCode) { invItem = inventory[k]; break; } }
+    if (!invItem) {
+        showAlert('error', (isZh ? '物料编号 {0} 不存在，请填写库存中已有的编号' : 'Материал {0} не найден, укажите существующий код').replace('{0}', nCode), 'outbound');
+        return;
+    }
+    if (!nName) nName = invItem.name || nCode; // 名称留空自动回填
+    if (!nOper) nOper = currentUser || (isZh ? '当前用户' : 'Текущий');
+    var newRec = { date: nDate, code: nCode, barcode: r.barcode || '', name: nName, quantity: nQty, department: nDept, operator: nOper };
+    // 负库存校验：检查受影响的物料（新编号；旧编号只减不增必安全）
+    var newStock = _previewStockAfter(nCode, _outEditIdx, newRec);
+    if (newStock < 0) {
+        showAlert('error', (t.outHistEditNegative || '修改后库存将变为负数（{0}）').replace('{0}', newStock), 'outbound');
+        return;
+    }
+    // 生成修改摘要（操作日志）
+    var changes = [];
+    if (nDate !== (r.date || '')) changes.push((isZh ? '日期→' : 'дата→') + nDate);
+    if (nCode !== (r.code || '')) changes.push((isZh ? '编号→' : 'код→') + nCode);
+    if (nName !== (r.name || '')) changes.push((isZh ? '名称→' : 'назв.→') + nName);
+    if (nQty !== Number(r.quantity)) changes.push((Number(r.quantity) || 0) + ' → ' + nQty);
+    if (nDept !== normalizeDepartment(r.department || '')) changes.push((isZh ? '部门→' : 'отдел→') + nDept);
+    if (nOper !== (r.operator || '')) changes.push((isZh ? '操作人→' : 'опер.→') + nOper);
+    if (changes.length === 0) { closeOutboundEditModal(); return; } // 无变化
+    var oldCode = r.code;
+    var oldKey = _genHistKey(r, 'out');
+    // 应用修改
+    r.date = nDate; r.code = nCode; r.barcode = r.barcode || ''; r.name = nName;
+    r.quantity = nQty; r.department = nDept; r.operator = nOper;
+    // 旧记录键入墓碑：其他端仍持有旧记录，union 合并时过滤；新记录经合并扩散
+    deletedHistKeys[oldKey] = Date.now();
+    // 库存重算（编号改动时新旧两个编号都要重算）
+    _recomputeStockForCode(oldCode);
+    if (nCode !== oldCode) _recomputeStockForCode(nCode);
+    if (nDept) saveCustomDepartment(nDept);
+    addLog(currentLang === 'zh' ? '修改出库记录' : 'Изменение записи отгрузки', nCode, changes.join('，'), nDate + ' ' + nName);
+    saveAllData();
+    refreshAll();
+    closeOutboundEditModal();
+    showAlert('success', t.outHistEditDone || t.histEditDone, 'outbound');
+}
+
+// v3.12.5：出库记录删除（管理员）。误录出库可直接删除后重新出库。
+// 旧记录键入墓碑（deletedHistKeys）→ 其他端同步时自动丢弃该记录，防止"删了又回来"；
+// 删除出库后库存自动回补（按历史重算；最后一条历史被删时按差值手动回补）。
+function deleteOutboundRecord(idx) {
+    const t = translations[currentLang];
+    if (!isAdmin) { showAlert('error', t.outHistDeny || t.histDeny, 'outbound'); return; }
+    var r = outboundHistory[idx];
+    if (!r) return;
+    var msg = (t.outHistDelConfirm || '确认删除该出库记录？\n{0} {1} {2} × {3}')
+        .replace('{0}', r.date || '').replace('{1}', r.code || '')
+        .replace('{2}', r.name || '').replace('{3}', r.quantity)
+        .replace('{4}', normalizeDepartment(r.department || '') || (currentLang === 'zh' ? '未分类' : 'Без категории'));
+    if (!confirm(msg)) return;
+    var key = _genHistKey(r, 'out');
+    var code = r.code, qty = Number(r.quantity) || 0, rDate = r.date || '', rName = r.name || '', rDept = normalizeDepartment(r.department || '');
+    deletedHistKeys[key] = Date.now();
+    outboundHistory.splice(idx, 1);
+    // 判断该物料是否还有剩余历史记录
+    var stillHas = false;
+    for (var i = 0; i < outboundHistory.length; i++) { if (outboundHistory[i].code === code) { stillHas = true; break; } }
+    if (!stillHas) { for (var j = 0; j < inboundHistory.length; j++) { if (inboundHistory[j].code === code) { stillHas = true; break; } } }
+    if (stillHas) {
+        _recomputeStockForCode(code);
+    } else {
+        // 最后一条历史被删：出库视为未发生，库存手动回补差值
+        var it = null;
+        for (var k = 0; k < inventory.length; k++) { if (inventory[k].code === code) { it = inventory[k]; break; } }
+        if (it) {
+            it.stock = (Number(it.stock) || 0) + qty;
+            it._cumOut = Math.max(0, (Number(it._cumOut) || 0) - qty);
+        }
+    }
+    addLog(currentLang === 'zh' ? '删除出库记录' : 'Удаление записи отгрузки', code, '+' + qty,
+        rDate + ' ' + rName + (rDept ? ' [' + rDept + ']' : ''));
+    saveAllData();
+    refreshAll();
+    showAlert('success', t.outHistDelDone || t.histDelDone, 'outbound');
 }
 
 // ========== 自动备份 ==========
@@ -2647,7 +2984,17 @@ function loadAllData() {
             for (var _ldi = 0; _ldi < inventory.length; _ldi++) {
                 if (!inventory[_ldi].source) inventory[_ldi].source = 'cn';
             }
-            _trackMaxTs(data); // v3.10.3：推进逻辑时钟基准（含从云端同步回来的数据）
+            // v3.11：图片独立存储 —— 从 warehouse-images 键合并回物料（不覆盖已有内嵌图片，
+            // 兼容旧版本写入的内嵌格式；下次 saveAllData 会自动迁移到独立键）
+            try {
+                var _ldImgs = JSON.parse(localStorage.getItem('warehouse-images') || '{}');
+                for (var _ldj = 0; _ldj < inventory.length; _ldj++) {
+                    var _ldCode = inventory[_ldj].code;
+                    if (_ldCode && _ldImgs[_ldCode] && (!inventory[_ldj].image || inventory[_ldj].image.length < 100)) {
+                        inventory[_ldj].image = _ldImgs[_ldCode];
+                    }
+                }
+            } catch(eLd) {}
             rebuildInvSnap();   // 重建库存快照，使后续保存仅对变更项打 lastModified
             return true;
         } catch(e) {
@@ -2814,7 +3161,7 @@ function editCodeItem(code, newCode) {
     item.code = trimmed;
     // v3.9.2：旧编号进墓碑（带时间戳），防止其他端旧数据把旧编号物料"复活"回来
     if (deletedCodes.indexOf(oldCode) === -1) deletedCodes.push(oldCode);
-    deletedAtMap[oldCode] = _lamportNow(); // v3.10.3：逻辑时钟，防时钟偏差端旧数据复活旧编号
+    deletedAtMap[oldCode] = Date.now();
     // 同步入库记录
     inboundHistory.forEach(function(r) { if (r.code === oldCode) r.code = trimmed; });
     // 同步出库记录
@@ -2876,6 +3223,73 @@ function editSourceItem(code, newSource) {
     item.source = newSource;
     addLog(t.logTypeEditSource, code, '', oldLabel + ' → ' + newLabel);
     saveAllData();
+    return true;
+}
+
+// ========== 实时库存总表：修改物料数据（累计入库/累计出库/单价） ==========
+let _editItemCode = null;
+function openEditItemModal(code) {
+    if (!isAdmin) return;
+    const item = inventory.find(function(i) { return i.code === code; });
+    if (!item) return;
+    _editItemCode = code;
+    const t = translations[currentLang];
+    document.getElementById('edit-item-modal-title').textContent = t.editItemModalTitle;
+    document.getElementById('edit-item-modal-desc').textContent = t.editItemModalDesc.replace('{0}', code).replace('{1}', item.name);
+    document.getElementById('label-edit-item-cumin').textContent = t.labelEditCumIn;
+    document.getElementById('label-edit-item-cumout').textContent = t.labelEditCumOut;
+    document.getElementById('label-edit-item-price').textContent = t.labelEditUnitPrice;
+    document.getElementById('edit-item-cumin').value = item._cumIn || 0;
+    document.getElementById('edit-item-cumout').value = item._cumOut || 0;
+    document.getElementById('edit-item-price').value = (item.unitPrice != null && !isNaN(item.unitPrice)) ? item.unitPrice : '';
+    document.getElementById('edit-item-error').classList.remove('show');
+    document.getElementById('btn-edit-item-cancel').textContent = t.insertBtnCancel;
+    document.getElementById('btn-edit-item-submit').textContent = t.btnHistEdit;
+    document.getElementById('edit-item-modal-overlay').classList.add('show');
+}
+function closeEditItemModal() {
+    _editItemCode = null;
+    document.getElementById('edit-item-modal-overlay').classList.remove('show');
+    document.getElementById('edit-item-error').classList.remove('show');
+}
+function saveEditItemModal() {
+    if (!_editItemCode) return;
+    const t = translations[currentLang];
+    const cuminInput = document.getElementById('edit-item-cumin');
+    const cumoutInput = document.getElementById('edit-item-cumout');
+    const priceInput = document.getElementById('edit-item-price');
+    const newCumIn = parseFloat(cuminInput.value);
+    const newCumOut = parseFloat(cumoutInput.value);
+    const newPrice = priceInput.value === '' ? null : parseFloat(priceInput.value);
+    if (isNaN(newCumIn) || newCumIn < 0 || isNaN(newCumOut) || newCumOut < 0 || (newPrice !== null && (isNaN(newPrice) || newPrice < 0))) {
+        document.getElementById('edit-item-error').textContent = t.editItemErrorInvalid;
+        document.getElementById('edit-item-error').classList.add('show');
+        return;
+    }
+    editItemData(_editItemCode, newCumIn, newCumOut, newPrice);
+    closeEditItemModal();
+}
+function editItemData(code, newCumIn, newCumOut, newPrice) {
+    if (!isAdmin) return;
+    const item = inventory.find(function(i) { return i.code === code; });
+    if (!item) return false;
+    const oldCumIn = item._cumIn || 0;
+    const oldCumOut = item._cumOut || 0;
+    const oldPrice = item.unitPrice;
+    let changed = false;
+    if (newCumIn !== oldCumIn) { item._cumIn = newCumIn; changed = true; }
+    if (newCumOut !== oldCumOut) { item._cumOut = newCumOut; changed = true; }
+    if (newPrice !== null && newPrice !== oldPrice) { item.unitPrice = newPrice; changed = true; }
+    if (!changed) return false;
+    // 重新计算当前库存
+    item.stock = (item.initialStock || 0) + (item._cumIn || 0) - (item._cumOut || 0);
+    if (item.stock < 0) item.stock = 0;
+    const t = translations[currentLang];
+    const note = t.sthCumIn + ':' + oldCumIn + '→' + item._cumIn + ', ' + t.sthCumOut + ':' + oldCumOut + '→' + item._cumOut + ', ' + t.sthPrice + ':' + (oldPrice != null ? oldPrice : '-') + '→' + (item.unitPrice != null ? item.unitPrice : '-');
+    addLog(t.logTypeEditItem, code, '', note);
+    saveAllData();
+    refreshAll();
+    showAlert('success', t.editItemSuccess, 'summary');
     return true;
 }
 
@@ -4026,6 +4440,12 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // v3.12.5：暴露到全局作用域。editOutboundRecord（出库编辑弹窗）是全局函数，
+    // 依赖 getDepartmentList/saveCustomDepartment；此前它们只在 DOMContentLoaded 闭包内可见，
+    // 全局调用抛 ReferenceError，导致点击「修改」按钮无任何反应（v3.12.4 回归）。
+    window.getDepartmentList = getDepartmentList;
+    window.saveCustomDepartment = saveCustomDepartment;
+
     // 部门管理弹窗
     function showDeptManager() {
         var overlay = document.getElementById('dept-manager-overlay');
@@ -4120,6 +4540,34 @@ document.addEventListener('DOMContentLoaded', function() {
         this.reset();
     });
 
+    // v3.12.1：出库记录编辑弹窗按钮
+    document.getElementById('btn-outbound-edit-cancel').addEventListener('click', closeOutboundEditModal);
+    document.getElementById('btn-outbound-edit-save').addEventListener('click', saveOutboundEditModal);
+    document.getElementById('outbound-edit-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closeOutboundEditModal();
+    });
+    document.getElementById('outbound-edit-overlay').addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeOutboundEditModal();
+        if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); saveOutboundEditModal(); }
+    });
+    // v3.12.4：部门下拉切换时同步隐藏域，自定义输入时实时同步
+    document.getElementById('outbound-edit-department-select').addEventListener('change', function(e) {
+        var custom = document.getElementById('outbound-edit-department-custom');
+        var hidden = document.getElementById('outbound-edit-department');
+        if (e.target.value === '__custom__') {
+            custom.style.display = 'block';
+            custom.focus();
+            hidden.value = custom.value.trim();
+        } else {
+            custom.style.display = 'none';
+            custom.value = '';
+            hidden.value = e.target.value;
+        }
+    });
+    document.getElementById('outbound-edit-department-custom').addEventListener('input', function(e) {
+        document.getElementById('outbound-edit-department').value = e.target.value.trim();
+    });
+
     // 密码设置按钮
     document.getElementById('btn-set-password').addEventListener('click', function() { if (!isAdmin) return; showSetPasswordModal(); });
 
@@ -4141,6 +4589,26 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('insert-modal-overlay').addEventListener('click', function(e) {
         if (e.target === this) closeInsertModal();
     });
+
+    // 修改物料数据弹窗
+    document.getElementById('btn-edit-item-cancel').addEventListener('click', closeEditItemModal);
+    document.getElementById('btn-edit-item-submit').addEventListener('click', saveEditItemModal);
+    document.getElementById('edit-item-modal-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closeEditItemModal();
+    });
+    document.getElementById('edit-item-cumin').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveEditItemModal(); }
+        else if (e.key === 'Escape') closeEditItemModal();
+    });
+    document.getElementById('edit-item-cumout').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveEditItemModal(); }
+        else if (e.key === 'Escape') closeEditItemModal();
+    });
+    document.getElementById('edit-item-price').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveEditItemModal(); }
+        else if (e.key === 'Escape') closeEditItemModal();
+    });
+
     document.getElementById('insert-code').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') document.getElementById('insert-name').focus();
     });
@@ -4309,7 +4777,6 @@ var _gistSaveDebounceMs = 3000;        // 连续操作时 3 秒合并一次上�
 var _gistLastSavePayload = '';         // 上次成功上传的 payload，避免重复上传
 var _gistRateLimitedUntil = 0;         // 限流恢复时间戳（epoch 秒）
 var _syncFailToastAt = 0;              // 上次同步失败提示时间，避免重试期间刷屏
-var _gistSave409Retries = 0;           // v3.10.3：sha 冲突重试计数（成功后清零）
 // v3.9.1：同步失败可见化 —— 之前失败完全静默（只有红点），手机端持续失败时用户无从得知
 function _syncFailToast(msg) {
     updateSyncStatus('failed');
@@ -4386,8 +4853,6 @@ function _doSaveToGist() {
                 var _cloudAcc = null;
                 if (_cA) _cloudAcc = mergeWarehouseData(_cloudAcc, _cA);
                 if (_cB) _cloudAcc = mergeWarehouseData(_cloudAcc, _cB);
-                // v3.10.3：上传前见过云端数据 → 推进逻辑时钟，保证本次上传携带的本端修改时间戳比云端新
-                try { _trackMaxTs(_cloudAcc); _trackMaxTs(_l); } catch (eT) {}
                 if (_cloudAcc && _l) {
                     // v3.9.1：本机在前（本机记录在去重时优先、时间戳并列时本机获胜），
                     // 防止云端瘦身数据（无图片）覆盖本机带图片的记录
@@ -4413,7 +4878,6 @@ function _doSaveToGist() {
         payload = JSON.stringify(data);
         // 去重：payload 与上次成功上传相同时跳过
         if (payload === _gistLastSavePayload) {
-            _gistSave409Retries = 0;
             localStorage.removeItem('gist-pending-sync');
             localStorage.removeItem('gist-pending-sync-new');
             updateSyncStatus('synced');
@@ -4424,25 +4888,23 @@ function _doSaveToGist() {
         if (!res) return;
         if (res.ok) {
             _gistLastSavePayload = payload;
-            _gistSave409Retries = 0;
             localStorage.removeItem('gist-pending-sync');
             localStorage.removeItem('gist-pending-sync-new');
             updateSyncStatus('synced');
         } else if (res.status === 409) {
-            // v3.10.3：并发写入 sha 冲突 —— 旧逻辑只重取 sha 后把同一份旧 payload 原样重 PUT，
-            // 会把另一端刚写入云端的数据整体抹掉（整文件 last-writer-wins，双端并发保存时互相覆盖的元凶）。
-            // 改为重新执行完整保存流程：重读本地最新数据 + 重新拉云端做记录级合并后再上传，双向数据都不丢。
-            if (_gistSave409Retries < 3) {
-                _gistSave409Retries++;
-                console.warn('Sync sha conflict (409), re-merge and retry #' + _gistSave409Retries);
-                setTimeout(function() { _doSaveToGist(); }, 1200);
-            } else {
-                console.warn('Sync sha conflict retries exhausted, defer to next poll');
-                _syncFailToast('conflict, retry later');
-                localStorage.setItem('gist-pending-sync', 'true');
-                localStorage.setItem('gist-pending-sync-new', 'true');
-                updateSyncStatus('pending');
-            }
+            // 并发写入导致 sha 冲突：重新取 sha 后重试一次
+            console.warn('Sync sha conflict (409), retrying');
+            _fetchSha().then(function(sha2) { return _putWithSha(sha2); }).then(function(res2) {
+                if (res2.ok) {
+                    _gistLastSavePayload = payload;
+                    localStorage.removeItem('gist-pending-sync');
+                    localStorage.removeItem('gist-pending-sync-new');
+                    updateSyncStatus('synced');
+                } else {
+                    console.warn('Sync retry failed: HTTP ' + res2.status);
+                    _syncFailToast('HTTP ' + res2.status);
+                }
+            });
         } else if (res.status === 403 || res.status === 429) {
             // 被限流：按 X-RateLimit-Reset 设定恢复时间
             var resetEpoch = res.headers.get('X-RateLimit-Reset');
@@ -4914,7 +5376,7 @@ function showSyncToast(msg) {
 // - 上传前与云端全部分片做并集合并（本机图优先，已删物料图清理），再重新分片；
 // - 与云端逐片对比，从第一处差异开始 PUT，多余的尾片 DELETE；
 // - 旧版单文件 wms-sync-images.json 自动迁移进分片并删除；
-// - 下载：轮询分片直到 404，合并后补齐本机缺失图片；本机图已全部上传时，云端不同的图会更新本机旧图（跨设备换图生效）；
+// - 下载：轮询分片直到 404，合并后补齐本机缺失图片（本机图不覆盖）；
 // - 单张超 850KB 的异常图片直接丢弃（护栏保留，防止单片超 1MB 读取上限）；
 // - 上传用签名去重（编号+图片长度），图片没变化时零网络请求；
 // - 任一环节失败静默跳过，绝不影响主数据同步。
@@ -5074,44 +5536,28 @@ function syncImagesToCloud() {
     }).catch(function(err) { _finish(false, String(err && err.message || err)); });
 }
 
-// 下载：云端全部分片合并后补齐/更新本机图片，45 秒节流
-// v3.10.3：修复「手机端换图后电脑端一直显示旧图」——旧逻辑只补齐本机缺失图片（本机已有图一律不覆盖），
-// 同一物料换图后其他端永远看不到新图。现改为：本机图片已全部上传（签名一致）时，云端不同图片更新本机旧图；
-// 本机有未上传的新图时仍不覆盖（防刚拍的照片被云端旧图反杀）。
+// 下载：云端全部分片合并后补齐本机缺失（本机已有图不覆盖），45 秒节流
 function syncImagesFromCloud() {
     if (_imgSyncBusy || _gistLoading) return;
     var last = parseInt(localStorage.getItem('wh-img-dl-ts') || '0', 10);
-    if (Date.now() - last < 45000) return;
+    if (Date.now() - last < 20000) return;   // v3.11：45s→20s，图片更多时更快收敛到三端一致
     localStorage.setItem('wh-img-dl-ts', String(Date.now()));
     _fetchAllImgShards().then(function(cloud) {
         var map = {};
         cloud.shards.forEach(function(s) { Object.keys(s.map).forEach(function(k) { if (!map[k]) map[k] = s.map[k]; }); });
         if (cloud.legacy) Object.keys(cloud.legacy.map).forEach(function(k) { if (!map[k]) map[k] = cloud.legacy.map[k]; });
-        // 本机图片是否已全部上传（签名一致=无待上传新图，可安全接受云端换图更新）
-        var _preMap = _buildLocalImageMap();
-        var allUploaded = (_imgMapSig(_preMap) === localStorage.getItem('wh-img-up-sig'));
         var changed = false;
         (inventory || []).forEach(function(it) {
-            if (it && it.code && map[it.code]) {
-                if (!it.image || it.image.length < 100) {
-                    it.image = map[it.code];              // 本机无图 → 直接补齐
-                    changed = true;
-                } else if (allUploaded && it.image !== map[it.code]) {
-                    it.image = map[it.code];              // 已全部上传 → 云端不同则更新（跨设备换图）
-                    changed = true;
-                }
+            if (it && it.code && map[it.code] && (!it.image || it.image.length < 100)) {
+                it.image = map[it.code];
+                changed = true;
             }
         });
         if (changed) {
             saveAllData();          // 写回本机（图片只落本机，主同步文件不受影响）
             renderInventory();
             renderHistoryTables();
-            // 本机每张图都与云端一致时才更新上传签名（防跳过必要上传；本机独有的图仍会触发上传补齐云端）
-            var _newMap = _buildLocalImageMap();
-            var _identical = true;
-            Object.keys(_newMap).forEach(function(k) { if (map[k] !== _newMap[k]) { _identical = false; } });
-            if (_identical) localStorage.setItem('wh-img-up-sig', _imgMapSig(_newMap));
-            console.log('[imgSync] 已从云端同步物料图片（补齐+更新，云端共 ' + Object.keys(map).length + ' 张）');
+            console.log('[imgSync] 已从云端分片补齐缺失物料图片（云端共 ' + Object.keys(map).length + ' 张）');
         }
         // 本机持有云端没有的图 → 触发上传补齐
         var localMap = _buildLocalImageMap();
@@ -5132,6 +5578,17 @@ function updateSyncTimeDisplay() {
 
 // 每秒刷新时间标签
 setInterval(updateSyncTimeDisplay, 1000);
+
+// v3.11：切回前台立即拉取一次远端（手机切 App / 电脑切标签页回来时马上看到其它端的最新数据）
+document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+        try { pollGistSync(); } catch (e) { console.warn('visibility sync failed', e); }
+    }
+});
+// 移动端 PWA 从后台恢复（部分浏览器不触发 visibilitychange）
+window.addEventListener('pageshow', function() {
+    try { if (window._lastSyncTime && Date.now() - window._lastSyncTime > 15000) pollGistSync(); } catch (e) {}
+});
 
 // 全局监听输入框聚焦，作为 isEditing 兜底（防止轮询打断扫码录入）
 document.addEventListener('focusin', function(e) {
