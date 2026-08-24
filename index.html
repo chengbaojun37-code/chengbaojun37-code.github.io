@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.1</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.2</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1376,6 +1376,7 @@ function loginAsAdmin() {
         sessionStorage.setItem('warehouse-is-admin', 'true');
         hideLoginModal();
         updateRoleUI();
+        refreshAll(); // v3.12.2：登录后立即重画表格，让「修改/删除」按钮列马上出现
     } else {
         document.getElementById('login-error').textContent = t.loginErrorWrong;
         document.getElementById('login-error').classList.add('show');
@@ -1389,6 +1390,7 @@ function loginAsGuest() {
     sessionStorage.setItem('warehouse-is-admin', 'false');
     hideLoginModal();
     updateRoleUI();
+    refreshAll(); // v3.12.2：退出管理员后同样重画，按钮列即时消失
 }
 
 function toggleLoginState() {
@@ -1396,6 +1398,7 @@ function toggleLoginState() {
         isAdmin = false;
         sessionStorage.removeItem('warehouse-is-admin');
         updateRoleUI();
+        refreshAll(); // v3.12.2：切换身份后重画表格
     } else {
         showLoginModal();
     }
