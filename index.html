@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.9</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.10</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -812,8 +812,10 @@
                     <input type="number" id="outbound-quantity" min="0" step="0.01" required>
                 </div>
                 <div class="form-group">
-                    <label for="outbound-department" id="label-outbound-department">领用部门</label>
-                    <input type="text" id="outbound-department" list="dept-list" autocomplete="off">
+                    <label for="outbound-department-select" id="label-outbound-department">领用部门</label>
+                    <select id="outbound-department-select" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></select>
+                    <input type="text" id="outbound-department-custom" style="display:none;width:100%;margin-top:8px;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px;" placeholder="输入新部门名称">
+                    <input type="hidden" id="outbound-department" value="">
                     <button type="button" class="btn-manage-dept" id="btn-manage-dept">管理</button>
                     <datalist id="dept-list"></datalist>
                 </div>
@@ -1052,6 +1054,11 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
+// v3.12.10：① 出库成功后表单/建议下拉残留清理——form.reset() 不触发 input 事件，无法靠 autofill
+//           的 hideSuggestions 关闭编号建议下拉，也不重置部门 select/自定义输入显隐；此前出库后
+//           建议列表与部门下拉残留、"还显示刚出库的物料"、需退出重新登录才恢复。现显式清理并聚焦编号框。
+//           ② 出库主表单领用部门由 datalist 改为 select+自定义输入：移动端浏览器对 datalist 支持极差、
+//           不弹候选，同事手机网页端无法选择领用部门（v3.12.4 只改了编辑弹窗，主表单漏改）。
 // v3.12.9：修复桌面版/PWA 长期停留在旧版本不更新的问题——
 //           重写 Service Worker 注册逻辑：固定 URL 注册（去掉 ?v=2），
 //           全局监听 controllerchange，新版 SW 接管页面瞬间自动刷新；
@@ -2857,6 +2864,26 @@ function _populateOutboundEditDepartment(currentDept) {
     }
     hidden.value = currentDept;
 }
+// v3.12.10：出库主表单领用部门也改为下拉（移动端 datalist 不弹候选，同事手机端无法选择），
+// 复用编辑弹窗同款 select+自定义输入结构。currentDept 留空=未分类
+function _populateOutboundDepartmentSelect(currentDept) {
+    var isZh = currentLang === 'zh';
+    var sel = document.getElementById('outbound-department-select');
+    if (!sel) return;
+    var custom = document.getElementById('outbound-department-custom');
+    var hidden = document.getElementById('outbound-department');
+    var depts = getDepartmentList();
+    var uncategorizedLabel = isZh ? '未分类 / Без категории' : 'Без категории / 未分类';
+    var newDeptLabel = isZh ? '➕ 新建部门 / Новый отдел' : '➕ Новый отдел / 新建部门';
+    var html = '<option value="">' + uncategorizedLabel + '</option>';
+    depts.forEach(function(d) { html += '<option value="' + d.replace(/"/g, '&quot;') + '">' + d + '</option>'; });
+    html += '<option value="__custom__">' + newDeptLabel + '</option>';
+    sel.innerHTML = html;
+    var cd = normalizeDepartment(currentDept || '');
+    if (!cd) { sel.value = ''; custom.style.display = 'none'; custom.value = ''; hidden.value = ''; }
+    else if (depts.indexOf(cd) !== -1) { sel.value = cd; custom.style.display = 'none'; custom.value = ''; hidden.value = cd; }
+    else { sel.value = '__custom__'; custom.style.display = 'block'; custom.value = cd; hidden.value = cd; }
+}
 function closeOutboundEditModal() {
     // v3.12.8：浮层关闭 → 配对解锁（仅当确实开过锁时才弹，防止重复调用破坏计数）
     if (_outEditLockedCode !== null) {
@@ -4539,6 +4566,9 @@ document.addEventListener('DOMContentLoaded', function() {
             opt.value = d;
             dl.appendChild(opt);
         });
+        // v3.12.10：同步刷新主表单领用部门下拉（保留当前选中值，避免刷新时丢失用户已选部门）
+        var _hd = document.getElementById('outbound-department');
+        _populateOutboundDepartmentSelect(_hd ? _hd.value : '');
     }
 
     // v3.12.5：暴露到全局作用域。editOutboundRecord（出库编辑弹窗）是全局函数，
@@ -4607,9 +4637,23 @@ document.addEventListener('DOMContentLoaded', function() {
     // 出库 - 实时匹配
     setupCodeAutofill('outbound-code', 'outbound-name', 'outbound-code-suggestions');
 
-    document.getElementById('outbound-department').addEventListener('blur', function() {
-        var val = this.value.trim();
-        if (val) saveCustomDepartment(val);
+    // v3.12.10：主表单领用部门改为下拉后，移除原 datalist input 的 blur 监听；
+    // 改用 select change + 自定义输入联动 hidden 域，提交时统一 saveCustomDepartment（见下方 submit）
+    document.getElementById('outbound-department-select').addEventListener('change', function(e) {
+        var custom = document.getElementById('outbound-department-custom');
+        var hidden = document.getElementById('outbound-department');
+        if (e.target.value === '__custom__') {
+            custom.style.display = 'block';
+            try { custom.focus(); } catch(_) {}
+            hidden.value = custom.value.trim();
+        } else {
+            custom.style.display = 'none';
+            custom.value = '';
+            hidden.value = e.target.value;
+        }
+    });
+    document.getElementById('outbound-department-custom').addEventListener('input', function(e) {
+        document.getElementById('outbound-department').value = e.target.value.trim();
     });
 
     document.getElementById('outbound-form').addEventListener('submit', function(e) {
@@ -4638,7 +4682,20 @@ document.addEventListener('DOMContentLoaded', function() {
         showAlert('success', t.alertSuccessOut, 'outbound');
         refreshAll();
         saveAllData();
+        // v3.12.10：出库成功后彻底清空表单——form.reset() 只清表单控件值，
+        // 不触发 input 事件（无法靠 autofill 的 hideSuggestions 关闭编号建议下拉），
+        // 也不重置部门 select/自定义输入框的显隐状态。此前出库后建议列表与部门下拉残留，
+        // 看上去"还显示刚出库的物料"，需退出重新登录才恢复。此处显式清理并聚焦编号框，便于连续出库。
         this.reset();
+        var _sel = document.getElementById('outbound-department-select');
+        var _cus = document.getElementById('outbound-department-custom');
+        var _hd = document.getElementById('outbound-department');
+        if (_sel) _sel.value = '';
+        if (_cus) { _cus.style.display = 'none'; _cus.value = ''; }
+        if (_hd) _hd.value = '';
+        var _sg = document.getElementById('outbound-code-suggestions');
+        if (_sg) { _sg.classList.remove('show'); _sg.innerHTML = ''; }
+        try { document.getElementById('outbound-code').focus(); } catch(_) {}
     });
 
     // v3.12.1：出库记录编辑弹窗按钮
