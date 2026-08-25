@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.12</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.13</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1054,6 +1054,12 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
+// v3.12.13：运行时版本自检——jsdom 端到端测试证实 v3.12.12 的出库表单清理代码本身完全正确
+// （14/14 通过：出库提交后表单/建议下拉/部门下拉全部清空、记录正确写入）。用户仍报"出库后表单
+// 残留"的根因是端上跑的是驻留内存的旧版页面：PWA 从后台恢复、长开的标签页不会重新导航，
+// 内存里仍是旧 JS（无表单清理逻辑）。SW 的 controllerchange 刷新只在"新 SW 恰好在页面存活期间
+// 安装"时触发，驻留跨越多次部署时永远错过。本版新增 appUpdateGuard：定期比对线上 sw.js 的
+// CACHE 与内嵌 APP_CACHE，不一致时表单空闲直接刷新、正在填写则显示顶部横幅提示手动刷新。
 // v3.12.12：出库后表单仍残留上一物料信息的最终修复——清理代码（reset+建议下拉+部门显隐）
 //           前移到 refreshAll/saveAllData 之前并整体 try/catch，任何后续异常都不再阻止表单清空。
 //           另：v3.12.11 部署上线后被回退（线上曾被覆盖回 v3.12.10），本版重新部署并换新缓存版本。
@@ -6198,6 +6204,81 @@ document.addEventListener('focusout', function(e) {
         document.getElementById('pwa-install-text').textContent = '点击底部"分享"图标 → "添加到主屏幕"，即可离线使用本系统。';
         window.localStorage.setItem('pwa-ios-hinted', '1');
     }
+})();
+
+// ========== v3.12.13：运行时版本自检（根治"驻留内存的旧版页面"） ==========
+// 背景：PWA 从后台恢复 / 长开的浏览器标签页不会重新导航，即使线上与 SW 都已是新版，
+// 内存里跑的仍是旧 JS——旧版缺表单清理逻辑等问题会一直存在，用户必须手动刷新。
+// SW 的 controllerchange 自动刷新只在"新 SW 恰好在页面存活期间安装"时触发，
+// 页面驻留跨越多次部署时永远错过。此处定期比对线上 sw.js 的 CACHE 版本与内嵌期望值，
+// 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
+(function appUpdateGuard() {
+    // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
+    var APP_CACHE = 'wms-cache-v20260825d';
+    var _checkedOnce = false;
+
+    function _formsDirty() {
+        var ids = ['outbound-code', 'outbound-quantity', 'outbound-department-custom',
+                   'inbound-code', 'inbound-quantity', 'insert-code', 'insert-name'];
+        for (var i = 0; i < ids.length; i++) {
+            var el = document.getElementById(ids[i]);
+            if (el && String(el.value || '').trim()) return true;
+        }
+        // 弹窗打开时也视为忙碌
+        var overlays = ['outbound-edit-overlay', 'inbound-edit-overlay', 'scan-modal-overlay',
+                        'password-modal-overlay', 'insert-modal-overlay', 'dept-modal-overlay'];
+        for (var j = 0; j < overlays.length; j++) {
+            var ov = document.getElementById(overlays[j]);
+            if (ov && (ov.classList.contains('show') || !ov.classList.contains('hidden'))) return true;
+        }
+        return false;
+    }
+
+    function _showUpdateBanner() {
+        if (document.getElementById('app-update-banner')) return;
+        var b = document.createElement('div');
+        b.id = 'app-update-banner';
+        b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#27ae60;color:#fff;' +
+            'padding:10px 16px;text-align:center;cursor:pointer;font-size:14px;font-weight:500;' +
+            'box-shadow:0 2px 8px rgba(0,0,0,.3);';
+        b.textContent = (typeof currentLang !== 'undefined' && currentLang === 'zh')
+            ? '🔄 系统已更新到新版本，点击此处刷新后生效（正在填写的表单请先完成）'
+            : '🔄 Доступна новая версия — нажмите для обновления';
+        b.onclick = function() { window.location.reload(); };
+        document.body.appendChild(b);
+    }
+
+    function _checkAppUpdate() {
+        // 仅 http(s) 环境（file:// 桌面版 fetch 会失败，静默跳过）
+        if (window.location.protocol.indexOf('http') !== 0) return;
+        try {
+            fetch('./sw.js', { cache: 'no-store' }).then(function(r) {
+                if (!r.ok) return null;
+                return r.text();
+            }).then(function(txt) {
+                if (!txt) return;
+                var m = txt.match(/const CACHE = '([^']+)'/);
+                if (m && m[1] !== APP_CACHE) {
+                    if (_formsDirty()) {
+                        _showUpdateBanner();
+                    } else {
+                        // 空闲状态直接刷新，无感知升级
+                        window.location.reload();
+                    }
+                }
+            }).catch(function() {});
+        } catch (e) {}
+    }
+
+    // 切回前台立即检查（PWA 后台恢复是最常见的旧版驻留场景）
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) setTimeout(_checkAppUpdate, 800);
+    });
+    // 每 3 分钟巡检一次（后台标签被节流，实际频率更低）
+    setInterval(_checkAppUpdate, 180000);
+    // 首次加载 5 秒后检查一次（跳过初始化高峰）
+    setTimeout(_checkAppUpdate, 5000);
+    _checkedOnce = true;
 })();
 
 
