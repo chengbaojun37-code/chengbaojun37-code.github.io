@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.7</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.8</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1052,6 +1052,11 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
+// v3.12.8：根除"边改边被覆盖"——引入编辑锁（_editLockDepth + editingCodes）：
+//           根因是 showPasswordModal/编辑浮层为异步，输密码间隙若焦点离开输入框，focusin 兜底的
+//           isEditing 被 focusout 清掉 → 10s 轮询 loadFromGist 把全局数组整体替换 → 此前 idx/r 引用
+//           变孤儿 → 改的是死对象。现编辑弹窗/密码确认/出库浮层打开期间强制锁定轮询，合并层对在编
+//           物料编号一律以本地为准，彻底保证"新数据覆盖旧数据、旧数据不覆盖刚编辑的新数据"。
 // v3.12.7：合并双会话改动——保留 v3.12.6 三项同步修复（跨端换图/409重合并/逻辑时钟），
 //           并合并另一会话同日部署的「入库/出库记录的修改、删除操作前需再次输入管理员密码」
 //           （复用 showPasswordModal，与登录密码一致，默认 admin123；删除物料此前已有此机制）。
@@ -1346,6 +1351,29 @@ let warehousePassword = localStorage.getItem('warehousePassword') || 'admin123';
 let backupTimer = null;
 let isEditing = false;
 let inventorySearchTerm = '';
+
+// v3.12.8：编辑锁——任何编辑弹窗/密码确认/出库编辑浮层打开期间，阻止轮询拉取云端。
+// 根因：showPasswordModal 与编辑浮层是异步的，在"输密码/点确认"间隙若焦点离开输入框，
+// focusin 兜底的 isEditing 会被 focusout 清掉 → 10s 轮询触发 loadFromGist →
+// 全局 inventory/inboundHistory/outboundHistory 被整条替换 → 此前用 idx/r 捕获的
+// 旧引用变成孤儿 → 用户改完点保存改的是死对象 → "还没改完就被覆盖"。
+// _editLockDepth 与焦点无关，只要还有编辑上下文打开就保持锁定，彻底堵住这个窗口。
+var _editLockDepth = 0;
+function _editLockPush() { _editLockDepth++; isEditing = true; }
+function _editLockPop() {
+    if (_editLockDepth > 0) _editLockDepth--;
+    if (_editLockDepth === 0) {
+        var ae = document.activeElement;
+        if (!ae || (ae.tagName !== 'INPUT' && ae.tagName !== 'TEXTAREA' && ae.tagName !== 'SELECT')) {
+            isEditing = false;
+        }
+    }
+}
+// 正在编辑的物料编号集合（计数，支持同一编号被多层编辑上下文锁定）：
+// 合并时本地一律为准，云端旧值不让步覆盖——把"新数据覆盖旧数据"原则下沉到合并层。
+var editingCodes = {};
+function _lockEditCode(code) { if (code) editingCodes[code] = (editingCodes[code] || 0) + 1; }
+function _unlockEditCode(code) { if (code && editingCodes[code]) { editingCodes[code]--; if (editingCodes[code] <= 0) delete editingCodes[code]; } }
 let isAdmin = sessionStorage.getItem('warehouse-is-admin') === 'true';
 
 
@@ -2435,11 +2463,15 @@ function showPasswordModal(onSuccess) {
     errorMsg.classList.remove('show');
     overlay.classList.add('show');
     input.focus();
+    _editLockPush();   // v3.12.8：密码确认期间锁定，防止异步间隙被轮询覆盖
 
     function doVerify() {
         if (input.value === warehousePassword) {
             overlay.classList.remove('show');
-            if (onSuccess) onSuccess();
+            // 先执行 onSuccess（其中会改数据+saveAllData），完成后再解锁，
+            // 保证整段编辑都处于锁定态，不让轮询替换全局数组使引用失效
+            try { if (onSuccess) onSuccess(); }
+            finally { _editLockPop(); }
         } else {
             errorMsg.textContent = t.passwordWrong;
             errorMsg.classList.add('show');
@@ -2451,6 +2483,7 @@ function showPasswordModal(onSuccess) {
     document.getElementById('btn-password-confirm').onclick = doVerify;
     document.getElementById('btn-password-cancel').onclick = function() {
         overlay.classList.remove('show');
+        _editLockPop();   // v3.12.8：取消同样解锁
     };
     input.onkeydown = function(e) {
         if (e.key === 'Enter') doVerify();
@@ -2753,6 +2786,7 @@ function deleteInboundRecord(idx) {
 // 旧记录键入墓碑（deletedHistKeys）→ 其他端同步时自动丢弃旧记录，新记录经 union 合并扩散；
 // 库存按出入库历史重算（_recomputeStockForCode），并写入操作日志留痕。
 var _outEditIdx = -1;
+var _outEditLockedCode = null;   // v3.12.8：出库编辑浮层打开时锁定的物料编号，关闭时配对解锁
 // v3.12.1：出库记录全字段编辑弹窗（日期/编号/名称/数量/部门/操作人）
 function editOutboundRecord(idx) {
     const t = translations[currentLang];
@@ -2761,6 +2795,11 @@ function editOutboundRecord(idx) {
     if (!r) return;
     // v3.12.7（合并自另一会话 v3.12.6）：修改记录前需再次输入管理员密码（防误操作/他人借登录态操作）
     showPasswordModal(function() {
+        // v3.12.8：密码确认通过后打开出库编辑浮层 → 再加一层锁（密码锁会在 onSuccess 返回后释放，
+        // 浮层锁保持到浮层关闭），覆盖整段编辑；同时锁定原物料编号防止合并覆盖
+        _outEditLockedCode = r.code;
+        _editLockPush();
+        _lockEditCode(r.code);
         _outEditIdx = idx;
         var isZh = currentLang === 'zh';
         document.getElementById('outbound-edit-title').textContent = isZh ? '修改出库记录' : 'Изменение записи отгрузки';
@@ -2815,6 +2854,12 @@ function _populateOutboundEditDepartment(currentDept) {
     hidden.value = currentDept;
 }
 function closeOutboundEditModal() {
+    // v3.12.8：浮层关闭 → 配对解锁（仅当确实开过锁时才弹，防止重复调用破坏计数）
+    if (_outEditLockedCode !== null) {
+        _unlockEditCode(_outEditLockedCode);
+        _outEditLockedCode = null;
+        _editLockPop();
+    }
     document.getElementById('outbound-edit-overlay').classList.remove('show');
     _outEditIdx = -1;
 }
@@ -3279,6 +3324,9 @@ function openEditItemModal(code) {
     const item = inventory.find(function(i) { return i.code === code; });
     if (!item) return;
     _editItemCode = code;
+    // v3.12.8：编辑物料浮层打开 → 锁定轮询 + 锁定该物料编号，防止异步间隙被覆盖
+    _editLockPush();
+    _lockEditCode(code);
     const t = translations[currentLang];
     document.getElementById('edit-item-modal-title').textContent = t.editItemModalTitle;
     document.getElementById('edit-item-modal-desc').textContent = t.editItemModalDesc.replace('{0}', code).replace('{1}', item.name);
@@ -3294,6 +3342,9 @@ function openEditItemModal(code) {
     document.getElementById('edit-item-modal-overlay').classList.add('show');
 }
 function closeEditItemModal() {
+    // v3.12.8：编辑物料浮层关闭 → 解锁（先解锁编号再弹锁，保持配对）
+    if (_editItemCode) { _unlockEditCode(_editItemCode); }
+    _editLockPop();
     _editItemCode = null;
     document.getElementById('edit-item-modal-overlay').classList.remove('show');
     document.getElementById('edit-item-error').classList.remove('show');
@@ -5056,6 +5107,8 @@ function mergeWarehouseData(local, gist) {
         if (!it || !it.code) return;
         if (!invMap[it.code]) { invMap[it.code] = it; }
         else {
+            // v3.12.8：本地正在编辑该物料 → 云端旧值一律不让步覆盖，本地刚编辑的新数据必胜
+            if (editingCodes[it.code]) return;
             var lt = invMap[it.code].lastModified || 0, gt = it.lastModified || 0;
             if (gt > lt) {   // 时间戳新者胜
                 // v3.9.1：图片不再跨设备同步。云端条目获胜时若自身没带图片，
@@ -5367,8 +5420,8 @@ function trySyncPending() {
 }
 
 function pollGistSync() {
-    // 如果用户正在编辑表单（焦点在输入框/textarea），跳过本次避免打断
-    if (isEditing) {
+    // 如果用户正在编辑表单（焦点在输入框/textarea）或编辑锁打开中，跳过本次避免打断
+    if (isEditing || _editLockDepth > 0) {
         console.log('Gist poll: skipped (user editing)');
         return;
     }
@@ -5664,6 +5717,7 @@ document.addEventListener('focusin', function(e) {
 });
 document.addEventListener('focusout', function(e) {
     setTimeout(function() {
+        if (_editLockDepth > 0) return;   // v3.12.8：编辑弹窗/密码确认期间不解锁
         var ae = document.activeElement;
         if (!ae || (ae.tagName !== 'INPUT' && ae.tagName !== 'TEXTAREA' && ae.tagName !== 'SELECT')) {
             isEditing = false;
