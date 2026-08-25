@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260824p'; // v3.12.9 PWA 自动更新：新版 SW 接管即自动刷新，桌面版不再卡旧版
+const CACHE = 'wms-cache-v20260825a'; // v3.12.10：出库表单残留清理 + 领用部门下拉适配移动端；沿用 PWA 接管即自动刷新
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', function(e) {
