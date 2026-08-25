@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.10</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.11</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1054,6 +1054,11 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
+// v3.12.11：修复领用部门下拉"没反应"——_populateOutboundDepartmentSelect 是全局函数，调用
+//           闭包内 getDepartmentList()，但 window.getDepartmentList 暴露在 renderDeptDatalist()
+//           首次调用之后，导致 ReferenceError → DOMContentLoaded 崩溃 → select change/input
+//           监听全没绑上。修复：window 暴露提前到 renderDeptDatalist() 之前 + 全局函数改用
+//           window.getDepartmentList() + 防御性 fallback。
 // v3.12.10：① 出库成功后表单/建议下拉残留清理——form.reset() 不触发 input 事件，无法靠 autofill
 //           的 hideSuggestions 关闭编号建议下拉，也不重置部门 select/自定义输入显隐；此前出库后
 //           建议列表与部门下拉残留、"还显示刚出库的物料"、需退出重新登录才恢复。现显式清理并聚焦编号框。
@@ -2839,7 +2844,7 @@ function _populateOutboundEditDepartment(currentDept) {
     var sel = document.getElementById('outbound-edit-department-select');
     var custom = document.getElementById('outbound-edit-department-custom');
     var hidden = document.getElementById('outbound-edit-department');
-    var depts = getDepartmentList();
+    var depts = window.getDepartmentList ? window.getDepartmentList() : [];
     var uncategorizedLabel = isZh ? '未分类 / Без категории' : 'Без категории / 未分类';
     var newDeptLabel = isZh ? '➕ 新建部门 / Новый отдел' : '➕ Новый отдел / 新建部门';
     var html = '<option value="">' + uncategorizedLabel + '</option>';
@@ -2872,7 +2877,7 @@ function _populateOutboundDepartmentSelect(currentDept) {
     if (!sel) return;
     var custom = document.getElementById('outbound-department-custom');
     var hidden = document.getElementById('outbound-department');
-    var depts = getDepartmentList();
+    var depts = window.getDepartmentList ? window.getDepartmentList() : [];
     var uncategorizedLabel = isZh ? '未分类 / Без категории' : 'Без категории / 未分类';
     var newDeptLabel = isZh ? '➕ 新建部门 / Новый отдел' : '➕ Новый отдел / 新建部门';
     var html = '<option value="">' + uncategorizedLabel + '</option>';
@@ -4484,9 +4489,13 @@ document.addEventListener('DOMContentLoaded', function() {
         setInboundCategoryByCode(item.code);
     });
 
-    renderDeptDatalist();
+    // v3.12.10：必须在 renderDeptDatalist() 之前暴露，否则 _populateOutboundDepartmentSelect
+    // （全局函数）调用 getDepartmentList 时 window 上还未设置 → ReferenceError → DOMContentLoaded 崩溃 →
+    // select change/input 监听全没绑上 → 下拉"没反应"
+    window.getDepartmentList = getDepartmentList;
+    window.saveCustomDepartment = saveCustomDepartment;
 
-    // 绑定部门管理按钮事件（在闭包内绑定，避免内联 onclick 的 scoping 问题）
+    renderDeptDatalist();
     var btnManageDept = document.getElementById('btn-manage-dept');
     if (btnManageDept) {
         btnManageDept.addEventListener('click', showDeptManager);
@@ -4570,12 +4579,6 @@ document.addEventListener('DOMContentLoaded', function() {
         var _hd = document.getElementById('outbound-department');
         _populateOutboundDepartmentSelect(_hd ? _hd.value : '');
     }
-
-    // v3.12.5：暴露到全局作用域。editOutboundRecord（出库编辑弹窗）是全局函数，
-    // 依赖 getDepartmentList/saveCustomDepartment；此前它们只在 DOMContentLoaded 闭包内可见，
-    // 全局调用抛 ReferenceError，导致点击「修改」按钮无任何反应（v3.12.4 回归）。
-    window.getDepartmentList = getDepartmentList;
-    window.saveCustomDepartment = saveCustomDepartment;
 
     // 部门管理弹窗
     function showDeptManager() {
