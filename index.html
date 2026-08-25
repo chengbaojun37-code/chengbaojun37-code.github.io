@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.8</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.9</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1052,6 +1052,10 @@ const SYNC_FILE = "wms-sync-data.json";
 // v3.9.4：图片单独走独立同步文件；v3.9.5 升级为分片多文件（wms-sync-images-1.json、-2.json、…），
 // 每片 ~600KB、最多 60 片（合计 ~36MB），支持 200+ 物料全部带图。
 // 主数据文件继续保持无图片（~50KB 秒传）。旧版单文件 wms-sync-images.json 会被自动迁移进分片并删除。
+// v3.12.9：修复桌面版/PWA 长期停留在旧版本不更新的问题——
+//           重写 Service Worker 注册逻辑：固定 URL 注册（去掉 ?v=2），
+//           全局监听 controllerchange，新版 SW 接管页面瞬间自动刷新；
+//           去掉"每次打开先注销再注册"，避免安装太快时 installing 为空导致永不刷新。
 // v3.12.8：根除"边改边被覆盖"——引入编辑锁（_editLockDepth + editingCodes）：
 //           根因是 showPasswordModal/编辑浮层为异步，输密码间隙若焦点离开输入框，focusin 兜底的
 //           isEditing 被 focusout 清掉 → 10s 轮询 loadFromGist 把全局数组整体替换 → 此前 idx/r 引用
@@ -6061,24 +6065,36 @@ document.addEventListener('focusout', function(e) {
 (function registerPWA() {
     // 仅在生产环境(https)注册 Service Worker，本地 file:// 自动跳过
     if ('serviceWorker' in navigator && window.location.protocol.indexOf('http') === 0) {
+        // v3.12.9：新版 Service Worker 接管页面的瞬间自动刷新，加载最新代码。
+        // 修复桌面版/PWA 长期停留在旧版本：旧逻辑只监听 installing 状态，
+        // 新 SW 安装太快时永远不触发刷新，页面一直显示旧版。
+        navigator.serviceWorker.addEventListener('controllerchange', function() {
+            console.log('[PWA] 新版 Service Worker 已接管，自动刷新加载最新版本');
+            window.location.reload();
+        });
         window.addEventListener('load', function() {
-            // 先注销所有旧 Service Worker，避免缓存旧版 index.html；注销后再注册新版
-            navigator.serviceWorker.getRegistrations().then(function(regs) {
-                return Promise.all(regs.map(function(r) {
-                    console.log('[PWA] 注销旧 Service Worker:', r.scope);
-                    return r.unregister();
-                }));
-            }).then(function() {
-                return navigator.serviceWorker.register('sw.js?v=2');
-            }).then(function(reg) {
-                console.log('[PWA] 新版 Service Worker 已注册', reg.scope);
+            // 固定 URL 注册（不带查询串），由浏览器标准机制检测 sw.js 内容更新
+            navigator.serviceWorker.register('sw.js').then(function(reg) {
+                console.log('[PWA] Service Worker 已注册', reg.scope);
+                // 新版本已就绪 → 立即激活（激活接管后由 controllerchange 触发自动刷新）
+                var activateNew = function() {
+                    if (reg.waiting) reg.waiting.postMessage({ type: 'skipWaiting' });
+                };
+                if (reg.waiting) { activateNew(); return; }
                 if (reg.installing) {
                     reg.installing.addEventListener('statechange', function() {
-                        if (this.state === 'activated') window.location.reload();
+                        if (this.state === 'installed' && navigator.serviceWorker.controller) activateNew();
                     });
-                } else if (reg.waiting) {
-                    reg.waiting.postMessage({type:'skipWaiting'});
+                    return;
                 }
+                reg.addEventListener('updatefound', function() {
+                    var nw = reg.installing;
+                    if (nw) {
+                        nw.addEventListener('statechange', function() {
+                            if (this.state === 'installed' && navigator.serviceWorker.controller) activateNew();
+                        });
+                    }
+                });
             }).catch(function(err) {
                 console.warn('[PWA] Service Worker 注册失败', err);
             });
