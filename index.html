@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.13</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.15</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -3467,6 +3467,13 @@ function editImageItem(code, base64Data) {
     if (!item) return false;
     const hadImage = !!item.image;
     item.image = base64Data;
+    // v3.12.15：本机换图 → 打 force 标记，允许本次上传覆盖云端旧图（跨端换图仍生效），
+    //           上传成功后自动清除；未标记的编号上传时以云端为准，防止旧设备旧图污染云端。
+    try {
+        var _f = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {};
+        _f[code] = 1;
+        localStorage.setItem('wh-img-force', JSON.stringify(_f));
+    } catch(eF) {}
     const note = hadImage ? (currentLang==='zh'?'更新图片':'Обновлено фото') : (currentLang==='zh'?'新增图片':'Добавлено фото');
     addLog(translations[currentLang].logTypeEditImage, code, '', note);
     saveAllData();
@@ -5619,21 +5626,33 @@ function syncImagesToCloud() {
     _imgSyncBusy = true;
     function _finish(ok, msg) {
         _imgSyncBusy = false;
-        if (ok) { localStorage.setItem('wh-img-up-sig', sig); }
+        if (ok) {
+            localStorage.setItem('wh-img-up-sig', sig);
+            // v3.12.15：上传成功后清除已同步的 force 标记（本机换图已推送到云端）
+            try {
+                var _f = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {};
+                Object.keys(localMap).forEach(function(k) { if (_f[k]) delete _f[k]; });
+                localStorage.setItem('wh-img-force', JSON.stringify(_f));
+            } catch(eF) {}
+        }
         else { console.warn('[imgSync] ' + (msg || '上传跳过')); }
     }
     _fetchAllImgShards().then(function(cloud) {
         // 并集合并：云端图仅保留本机库存中还存活的编号；顺序保持云端在前（追加式分片稳定）
         var alive = {};
         (inventory || []).forEach(function(it) { if (it && it.code) alive[it.code] = 1; });
+        // v3.12.15：force 标记集合——本机换图后标记的编号，上传时允许覆盖云端旧图（跨端换图）
+        var _forceMap = {};
+        try { _forceMap = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {}; } catch(eF) { _forceMap = {}; }
         var merged = {};
         var order = [];
         function _push(k, v) { if (!merged[k]) { merged[k] = v; order.push(k); } }
         cloud.shards.forEach(function(s) { Object.keys(s.map).forEach(function(k) { if (alive[k]) _push(k, s.map[k]); }); });
         if (cloud.legacy) Object.keys(cloud.legacy.map).forEach(function(k) { if (alive[k]) _push(k, cloud.legacy.map[k]); });
         Object.keys(localMap).forEach(function(k) {
-            if (merged[k]) { merged[k] = localMap[k]; }   // 本机图覆盖同编号云端图（新拍的优先）
-            else { merged[k] = localMap[k]; order.push(k); }
+            if (merged[k]) {
+                if (_forceMap[k]) merged[k] = localMap[k];   // v3.12.15：force（本机刚换图）→ 覆盖云端旧图
+            } else { merged[k] = localMap[k]; order.push(k); }  // 云端缺失 → 补传本机图
         });
         // 追加式打包分片（顺序遍历 order，填满一片开下一片）
         var shardMaps = [];
@@ -5726,17 +5745,16 @@ function syncImagesFromCloud() {
         var map = {};
         cloud.shards.forEach(function(s) { Object.keys(s.map).forEach(function(k) { if (!map[k]) map[k] = s.map[k]; }); });
         if (cloud.legacy) Object.keys(cloud.legacy.map).forEach(function(k) { if (!map[k]) map[k] = cloud.legacy.map[k]; });
-        // v3.12.6：本机图片是否已全部上传（签名一致=无待上传新图，可安全接受云端换图更新）
-        var _preMap = _buildLocalImageMap();
-        var allUploaded = (_imgMapSig(_preMap) === localStorage.getItem('wh-img-up-sig'));
+        // v3.12.15：下载以云端为真源——云端有图即覆盖本地（旧图/错图/缺图全部被云端纠正，
+        //           根治"图片跟旧版本混合"）；仅本机刚换图（force 标记）的编号保留本地新图，
+        //           稍后由上传逻辑覆盖云端，实现跨端换图。
+        var _forceMap = {};
+        try { _forceMap = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {}; } catch(eF) { _forceMap = {}; }
         var changed = false;
         (inventory || []).forEach(function(it) {
-            if (it && it.code && map[it.code]) {
-                if (!it.image || it.image.length < 100) {
-                    it.image = map[it.code];              // 本机无图 → 直接补齐
-                    changed = true;
-                } else if (allUploaded && it.image !== map[it.code]) {
-                    it.image = map[it.code];              // 已全部上传 → 云端不同则更新（跨设备换图，修复 BC001~BC004 不同步）
+            if (it && it.code && map[it.code] && !_forceMap[it.code]) {
+                if (it.image !== map[it.code]) {
+                    it.image = map[it.code];              // 云端真源：无条件对齐本地（修复 BC001 等旧图/错图混合）
                     changed = true;
                 }
             }
@@ -6214,7 +6232,7 @@ document.addEventListener('focusout', function(e) {
 // 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
 (function appUpdateGuard() {
     // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260825d';
+    var APP_CACHE = 'wms-cache-v20260826a';
     var _checkedOnce = false;
 
     function _formsDirty() {
