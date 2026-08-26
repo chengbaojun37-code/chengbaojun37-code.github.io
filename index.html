@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.18</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.19</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1363,7 +1363,23 @@ let deletedHistKeys = {};     // v3.9.3：入库/出库历史记录删除墓碑�
                               // 历史 union 合并只增不减，本端删除的记录会被其他端旧数据"回流复活"；
                               // 墓碑随同步传播，合并时过滤墓碑键的记录，使删除跨设备生效。
 let deletedImageKeys = {};    // v3.12.17：图片删除墓碑：code -> 删除时刻。已删除的错图不允许任何端补传回云端；重新上传图片(editImageItem)时撤除墓碑。
+let restoredImageKeys = {};   // v3.12.19：图片复活标记：code -> 恢复时刻。时间戳晚于墓碑 → 撤墓碑，编号恢复图片同步。
+                              // 用于云端找回/批量恢复正确图片：纯删除墓碑会被旧版本(≤3.12.17)的并集合并重新加回，
+                              // 复活标记以"晚者胜"的时间戳语义压过墓碑，新旧版本数据可收敛。
 let _prevInvSnap = {};        // 库存快照：code -> JSON 串，用于 saveAllData 中检测变更并打 lastModified
+// v3.12.19：生效墓碑 = deletedImageKeys 减去"复活时间晚于墓碑时间"的编号。
+// 图片同步/本地装图一律以此为准，保证恢复的正确图不会被墓碑误杀。
+function _effectiveImageTombstones() {
+    var t = {}, k;
+    for (k in deletedImageKeys) {
+        if (Object.prototype.hasOwnProperty.call(deletedImageKeys, k)) t[k] = deletedImageKeys[k];
+    }
+    for (k in restoredImageKeys) {
+        if (!Object.prototype.hasOwnProperty.call(restoredImageKeys, k)) continue;
+        if (t[k] && (Number(restoredImageKeys[k]) || 0) > (Number(t[k]) || 0)) delete t[k];
+    }
+    return t;
+}
 let currentFilter = 'all';
 let inboundImageData = null;
 let summarySortCol = null;
@@ -2416,6 +2432,7 @@ function saveAllData() {
         deletedAt: deletedAtMap,
         deletedHist: deletedHistKeys,
         deletedImages: deletedImageKeys,
+        restoredImages: restoredImageKeys,   // v3.12.19：图片复活标记随主数据同步
         dataVersion: dataVersion,
         resetAt: _carryResetAt,
         presetVersion: PRESET_VERSION,
@@ -2471,6 +2488,7 @@ function clearAllData() {
         operationLogs = [];
         dataVersion = 0;
         deletedImageKeys = {};   // v3.12.17：清空数据时同步清空图片墓碑
+        restoredImageKeys = {};  // v3.12.19：连同复活标记一起清空
         refreshAll();
         showAlert('success', currentLang === 'zh' ? '全部数据已清除' : 'Все данные очищены', 'log');
     });
@@ -3116,6 +3134,8 @@ function loadAllData() {
             deletedAtMap = data.deletedAt || {};
             deletedHistKeys = data.deletedHist || {};
             deletedImageKeys = data.deletedImages || {};
+            restoredImageKeys = data.restoredImages || {};   // v3.12.19：图片复活标记
+            var _ldTomb = _effectiveImageTombstones();      // v3.12.19：复活标记压过墓碑后才算真墓碑
             dataVersion = data.dataVersion || 0;
             if (data.warehousePassword) warehousePassword = data.warehousePassword;
             if (inventory.length === 0 && inboundHistory.length === 0 && outboundHistory.length === 0 && operationLogs.length === 0) return false;
@@ -3130,7 +3150,8 @@ function loadAllData() {
                 for (var _ldj = 0; _ldj < inventory.length; _ldj++) {
                     var _ldCode = inventory[_ldj].code;
                     // v3.12.17：图片墓碑编号不装回本地缓存图（错图），等重新上传后墓碑撤除才恢复
-                    if (_ldCode && _ldImgs[_ldCode] && !deletedImageKeys[_ldCode] && (!inventory[_ldj].image || inventory[_ldj].image.length < 100)) {
+                    // v3.12.19：以复活标记过滤后的墓碑为准（恢复的正确图可正常装回）
+                    if (_ldCode && _ldImgs[_ldCode] && !_ldTomb[_ldCode] && (!inventory[_ldj].image || inventory[_ldj].image.length < 100)) {
                         inventory[_ldj].image = _ldImgs[_ldCode];
                     }
                 }
@@ -3475,7 +3496,10 @@ function editImageItem(code, base64Data) {
     // v3.12.15：本机换图 → 打 force 标记，允许本次上传覆盖云端旧图（跨端换图仍生效），
     //           上传成功后自动清除；未标记的编号上传时以云端为准，防止旧设备旧图污染云端。
     // v3.12.17：重新上传图片 → 撤除图片删除墓碑，该编号恢复正常图片同步。
+    // v3.12.19：同时写入复活标记（时间晚于任何历史墓碑）——本机撤了墓碑也要防止其他端
+    //           旧版本用并集合并把墓碑传回来；复活标记全网同步后墓碑自然失效。
     if (deletedImageKeys[code]) { delete deletedImageKeys[code]; }
+    restoredImageKeys[code] = Date.now();
     try {
         var _f = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {};
         _f[code] = 1;
@@ -5248,6 +5272,9 @@ function mergeWarehouseData(local, gist) {
     // v3.12.17：图片删除墓碑——两端并集、时间戳取大者。
     // 命中墓碑的编号：图片同步时禁止下载应用/上传补传，防止任何端本地缓存的错图回传污染云端。
     // 重新上传图片(editImageItem)会从墓碑撤除该编号，恢复正常同步。
+    // v3.12.19：图片复活标记 restoredImages——并集、时间戳取大者；复活时间晚于墓碑时间 → 撤墓碑。
+    // 场景：云端找回/恢复正确图片。纯撤墓碑会被旧版本(≤3.12.17)端用并集合并加回并剔除云端图，
+    // 复活标记以时间戳语义全网传播，最终所有 ≥3.12.19 的端都会把该编号视作正常同步。
     var _imgTombs = {};
     [local.deletedImages, gist.deletedImages].forEach(function(m) {
         if (!m) return;
@@ -5258,6 +5285,22 @@ function mergeWarehouseData(local, gist) {
             }
         }
     });
+    var _imgRestored = {};
+    [local.restoredImages, gist.restoredImages].forEach(function(m) {
+        if (!m) return;
+        for (var irk in m) {
+            if (Object.prototype.hasOwnProperty.call(m, irk)) {
+                var irt = Number(m[irk]) || 0;
+                if (!(_imgRestored[irk] >= irt)) _imgRestored[irk] = irt;
+            }
+        }
+    });
+    for (var _rk in _imgRestored) {
+        if (Object.prototype.hasOwnProperty.call(_imgRestored, _rk)
+            && _imgTombs[_rk] && _imgRestored[_rk] > (Number(_imgTombs[_rk]) || 0)) {
+            delete _imgTombs[_rk];   // 复活晚于删除 → 撤墓碑
+        }
+    }
     var operationLogs = unionByKey(local.operationLogs, gist.operationLogs, 'log');
     var lv = local.dataVersion || 0, gv = gist.dataVersion || 0;
     recomputeAllStock(inventory, inboundHistory, outboundHistory);
@@ -5270,6 +5313,7 @@ function mergeWarehouseData(local, gist) {
         deletedAt: _outDelAt,
         deletedHist: _histTombs,
         deletedImages: _imgTombs,
+        restoredImages: _imgRestored,   // v3.12.19：复活标记随合并结果同步
         dataVersion: Math.max(lv, gv) + 1,
         presetVersion: gist.presetVersion || local.presetVersion,
         warehousePassword: gist.warehousePassword || local.warehousePassword
@@ -5473,7 +5517,7 @@ function loadFromGist() {
             // 修复「写风暴」：之前每 10 秒轮询都会标记待上传，多端互相覆盖且逼近 API 限额。
             // v3.9.1：签名对比前同样剔除图片（云端图片已不同步，若直接对比整对象，
             // 本机带图 vs 云端无图会永远不等，导致每 10 秒误标记一次待上传）
-            function _sig(o){ if(!o) return ''; var so=_stripImagesForSync(o); return JSON.stringify({i:so.inventory||[],h1:so.inboundHistory||[],h2:so.outboundHistory||[],l:so.operationLogs||[],d:so.deletedCodes||[],dh:so.deletedHist||{},di:so.deletedImages||{}}); }
+            function _sig(o){ if(!o) return ''; var so=_stripImagesForSync(o); return JSON.stringify({i:so.inventory||[],h1:so.inboundHistory||[],h2:so.outboundHistory||[],l:so.operationLogs||[],d:so.deletedCodes||[],dh:so.deletedHist||{},di:so.deletedImages||{},ri:so.restoredImages||{}}); }
             var _cloudOnly = null;
             [_gA, _gB].filter(Boolean).forEach(function(_s) { _cloudOnly = mergeWarehouseData(_cloudOnly, _s); });
             if (_sig(_mergedAcc) !== _sig(_cloudOnly)) {
@@ -5667,7 +5711,8 @@ function syncImagesToCloud() {
         try { _forceMap = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {}; } catch(eF) { _forceMap = {}; }
         // v3.12.17：图片删除墓碑——墓碑编号的图一律不进合并结果（无 force 时），
         // 云端分片里残留的墓碑键也会被本次重分片自然剔除（自愈）
-        var _imgTombs = deletedImageKeys || {};
+        // v3.12.19：改用生效墓碑（复活标记压过墓碑）——恢复的正确图不会被误剔除
+        var _imgTombs = _effectiveImageTombstones();
         var merged = {};
         var order = [];
         function _push(k, v) { if (!merged[k]) { merged[k] = v; order.push(k); } }
@@ -5777,7 +5822,7 @@ function syncImagesFromCloud() {
         try { _forceMap = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {}; } catch(eF) { _forceMap = {}; }
         // v3.12.17：图片删除墓碑——墓碑编号：清除本地缓存的错图（saveAllData 会连带清理 warehouse-images 独立键），
         // 且不应用云端分片中可能残留的同编号图（自愈）。重新上传图片后墓碑撤除，恢复正常。
-        var _imgTombs = deletedImageKeys || {};
+        var _imgTombs = _effectiveImageTombstones();   // v3.12.19：生效墓碑（复活优先）
         var changed = false;
         (inventory || []).forEach(function(it) {
             if (!it || !it.code) return;
@@ -5861,7 +5906,7 @@ document.addEventListener('focusout', function(e) {
     var scanTargetForm = null;    // 'inbound' 或 'outbound'
 
     // 动态加载 ZXing-js（@zxing/browser）UMD
-    // v3.12.18：优先加载仓库内本地副本（随 SW 预缓存，离线可用），
+    // v3.12.19：优先加载仓库内本地副本（随 SW 预缓存，离线可用），
     // 彻底消除对 jsdelivr CDN 的依赖——CDN 被墙/断网时扫码曾直接瘫痪（手动输入不受影响）。
     function loadZxing() {
         return new Promise(function(resolve, reject) {
@@ -5897,7 +5942,7 @@ document.addEventListener('focusout', function(e) {
     function openScanModal(targetInputId) {
         scanTargetInputId = targetInputId;
         scanTargetForm = targetInputId.indexOf('inbound') === 0 ? 'inbound' : 'outbound';
-        scanResultLock = false;   // v3.12.18：重置扫码结果锁
+        scanResultLock = false;   // v3.12.19：重置扫码结果锁
         // 打开前兜底：确保 overlay 不残留 display:none 之外的隐藏状态
         var overlay = document.getElementById('scan-modal-overlay');
         if (overlay) {
@@ -5923,7 +5968,7 @@ document.addEventListener('focusout', function(e) {
     }
 
     function stopCamera() {
-        stopVideoWatchdog();   // v3.12.18：摄像头停止时同步停掉视频看门狗
+        stopVideoWatchdog();   // v3.12.19：摄像头停止时同步停掉视频看门狗
         try { if (codeReader && codeReader.reset) codeReader.reset(); } catch(e) {}
         try { if (scanTrack) scanTrack.stop(); } catch(e) {}
         if (scanStream) {
@@ -5967,7 +6012,7 @@ document.addEventListener('focusout', function(e) {
         });
     }
 
-    // v3.12.18：重写摄像头启动流程，根治"扫码后弹窗不返回"：
+    // v3.12.19：重写摄像头启动流程，根治"扫码后弹窗不返回"：
     // 旧逻辑两个致命缺陷——
     //  1) srcObject 赋值后立即 play()，iOS/安卓上经常 AbortError（流还没就绪）；
     //  2) play() 失败走 catch 后【不关旧流】直接二次 getUserMedia，手机上开第二个
@@ -6062,7 +6107,7 @@ document.addEventListener('focusout', function(e) {
         if (videoWatchdogTimer) { clearInterval(videoWatchdogTimer); videoWatchdogTimer = null; }
     }
 
-    var scanResultLock = false;   // v3.12.18：防止 ZXing 连续两帧重复触发同一次扫码结果
+    var scanResultLock = false;   // v3.12.19：防止 ZXing 连续两帧重复触发同一次扫码结果
     function onBarcodeScanned(code) {
         if (!code) return;
         if (scanResultLock) return;
@@ -6336,7 +6381,7 @@ document.addEventListener('focusout', function(e) {
 // 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
 (function appUpdateGuard() {
     // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260826d';
+    var APP_CACHE = 'wms-cache-v20260826e';
     var _checkedOnce = false;
 
     function _formsDirty() {
