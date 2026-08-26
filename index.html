@@ -3129,7 +3129,8 @@ function loadAllData() {
                 var _ldImgs = JSON.parse(localStorage.getItem('warehouse-images') || '{}');
                 for (var _ldj = 0; _ldj < inventory.length; _ldj++) {
                     var _ldCode = inventory[_ldj].code;
-                    if (_ldCode && _ldImgs[_ldCode] && (!inventory[_ldj].image || inventory[_ldj].image.length < 100)) {
+                    // v3.12.17：图片墓碑编号不装回本地缓存图（错图），等重新上传后墓碑撤除才恢复
+                    if (_ldCode && _ldImgs[_ldCode] && !deletedImageKeys[_ldCode] && (!inventory[_ldj].image || inventory[_ldj].image.length < 100)) {
                         inventory[_ldj].image = _ldImgs[_ldCode];
                     }
                 }
