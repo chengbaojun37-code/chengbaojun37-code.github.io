@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.17</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.18</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -5861,18 +5861,29 @@ document.addEventListener('focusout', function(e) {
     var scanTargetForm = null;    // 'inbound' 或 'outbound'
 
     // 动态加载 ZXing-js（@zxing/browser）UMD
+    // v3.12.18：优先加载仓库内本地副本（随 SW 预缓存，离线可用），
+    // 彻底消除对 jsdelivr CDN 的依赖——CDN 被墙/断网时扫码曾直接瘫痪（手动输入不受影响）。
     function loadZxing() {
         return new Promise(function(resolve, reject) {
             if (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader) return resolve();
-            var script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
-            script.async = true;
-            script.onload = function() {
-                if (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader) resolve();
-                else reject(new Error('ZXing loaded but BrowserMultiFormatReader missing'));
-            };
-            script.onerror = function() { reject(new Error('无法加载 ZXing 库')); };
-            document.head.appendChild(script);
+            tryLocal('zxing-browser.min.js').catch(function() {
+                return tryLocal('https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js');
+            }).then(resolve).catch(function() {
+                reject(new Error('无法加载扫码库，请检查网络'));
+            });
+            function tryLocal(src) {
+                return new Promise(function(res2, rej2) {
+                    var script = document.createElement('script');
+                    script.src = src;
+                    script.async = true;
+                    script.onload = function() {
+                        if (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader) res2();
+                        else rej2(new Error('ZXing loaded but BrowserMultiFormatReader missing'));
+                    };
+                    script.onerror = function() { rej2(new Error('script load failed')); };
+                    document.head.appendChild(script);
+                });
+            }
         });
     }
 
@@ -5886,6 +5897,7 @@ document.addEventListener('focusout', function(e) {
     function openScanModal(targetInputId) {
         scanTargetInputId = targetInputId;
         scanTargetForm = targetInputId.indexOf('inbound') === 0 ? 'inbound' : 'outbound';
+        scanResultLock = false;   // v3.12.18：重置扫码结果锁
         // 打开前兜底：确保 overlay 不残留 display:none 之外的隐藏状态
         var overlay = document.getElementById('scan-modal-overlay');
         if (overlay) {
@@ -5911,6 +5923,7 @@ document.addEventListener('focusout', function(e) {
     }
 
     function stopCamera() {
+        stopVideoWatchdog();   // v3.12.18：摄像头停止时同步停掉视频看门狗
         try { if (codeReader && codeReader.reset) codeReader.reset(); } catch(e) {}
         try { if (scanTrack) scanTrack.stop(); } catch(e) {}
         if (scanStream) {
@@ -5954,6 +5967,14 @@ document.addEventListener('focusout', function(e) {
         });
     }
 
+    // v3.12.18：重写摄像头启动流程，根治"扫码后弹窗不返回"：
+    // 旧逻辑两个致命缺陷——
+    //  1) srcObject 赋值后立即 play()，iOS/安卓上经常 AbortError（流还没就绪）；
+    //  2) play() 失败走 catch 后【不关旧流】直接二次 getUserMedia，手机上开第二个
+    //     摄像头流会导致画面黑屏/冻结，ZXing 永远解不出码 → 扫码弹窗永远不关闭。
+    //     （手动输入不经过摄像头，所以一直正常——这正是用户反馈的现象。）
+    // 新逻辑：等视频元数据就绪再播、play 失败自动重试、解码启动全程可观测、
+    // 视频流看门狗防静默冻结；二次 getUserMedia 只在首次开流本身失败时才走（此时无活动流，安全）。
     function startCamera() {
         var video = document.getElementById('scan-video');
         // 优先使用后置摄像头（手机）
@@ -5961,41 +5982,91 @@ document.addEventListener('focusout', function(e) {
             video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
             audio: false
         };
-        navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
-            scanStream = stream;
-            scanTrack = stream.getVideoTracks()[0];
-            video.srcObject = stream;
-            return video.play();
-        }).then(function() {
-            setStatus('请将条形码对准取景框', 'info');
-            // 使用 ZXing 实时识别
-            codeReader = new ZXingBrowser.BrowserMultiFormatReader();
-            codeReader.decodeFromVideoElement(video, function(result, err) {
-                if (result) {
-                    onBarcodeScanned(result.getText());
-                }
-            });
-        }).catch(function(err) {
-            // 后置摄像头失败时尝试任意摄像头
-            navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then(function(stream) {
+        navigator.mediaDevices.getUserMedia(constraints)
+            .catch(function(err) {
+                // 仅当"开流本身失败"（此时没有任何活动摄像头流）才用最简约束再试一次
+                setStatus('正在切换摄像头模式…', 'info');
+                return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            })
+            .then(function(stream) {
                 scanStream = stream;
                 scanTrack = stream.getVideoTracks()[0];
                 video.srcObject = stream;
-                return video.play();
-            }).then(function() {
-                setStatus('已切换到默认摄像头，请将条形码对准取景框', 'info');
-                codeReader = new ZXingBrowser.BrowserMultiFormatReader();
-                codeReader.decodeFromVideoElement(video, function(result, err) {
-                    if (result) onBarcodeScanned(result.getText());
-                });
-            }).catch(function(err2) {
-                setStatus('无法访问摄像头：' + (err2.message || err.message || '请检查权限'), 'error');
+                return playVideoWithRetry(video);
+            })
+            .then(function() {
+                setStatus('请将条形码对准取景框', 'info');
+                startDecoding(video);
+                startVideoWatchdog(video);
+            })
+            .catch(function(err) {
+                setStatus('无法访问摄像头：' + ((err && err.message) || '请检查权限'), 'error');
             });
+    }
+
+    // 等待视频元数据就绪后再播放；play() 失败自动重试（最多 3 次）
+    function playVideoWithRetry(video) {
+        function tryPlay(attempt) {
+            return video.play().catch(function(e) {
+                if (attempt >= 3) throw e;
+                return new Promise(function(r) { setTimeout(r, 300); })
+                    .then(function() { return tryPlay(attempt + 1); });
+            });
+        }
+        if (video.readyState >= 1) return tryPlay(1);
+        return new Promise(function(resolve, reject) {
+            var done = false;
+            var timer = setTimeout(function() { finish(); }, 1500);   // 元数据超时也硬着头皮播
+            function finish() {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                video.removeEventListener('loadedmetadata', finish);
+                video.removeEventListener('canplay', finish);
+                tryPlay(1).then(resolve, reject);
+            }
+            video.addEventListener('loadedmetadata', finish);
+            video.addEventListener('canplay', finish);
         });
     }
 
+    // 启动 ZXing 持续解码；任何一步失败都把原因显示到状态栏（旧版静默失败，无任何提示）
+    function startDecoding(video) {
+        try {
+            codeReader = new ZXingBrowser.BrowserMultiFormatReader();
+            var p = codeReader.decodeFromVideoElement(video, function(result, err) {
+                if (result) onBarcodeScanned(result.getText());
+            });
+            if (p && typeof p.catch === 'function') {
+                p.catch(function(e) {
+                    setStatus('扫码引擎启动失败，可用下方手动输入：' + ((e && e.message) || e), 'error');
+                });
+            }
+        } catch (e) {
+            setStatus('扫码引擎初始化失败，可用下方手动输入：' + ((e && e.message) || e), 'error');
+        }
+    }
+
+    // 视频流看门狗：部分机型视频流会静默冻结（黑屏/停帧），每 2 秒检查一次并自愈
+    var videoWatchdogTimer = null;
+    function startVideoWatchdog(video) {
+        stopVideoWatchdog();
+        videoWatchdogTimer = setInterval(function() {
+            if (!video.srcObject) return;
+            if (video.readyState === 0 || video.paused) {
+                try { video.play().catch(function() {}); } catch (e) {}
+            }
+        }, 2000);
+    }
+    function stopVideoWatchdog() {
+        if (videoWatchdogTimer) { clearInterval(videoWatchdogTimer); videoWatchdogTimer = null; }
+    }
+
+    var scanResultLock = false;   // v3.12.18：防止 ZXing 连续两帧重复触发同一次扫码结果
     function onBarcodeScanned(code) {
         if (!code) return;
+        if (scanResultLock) return;
+        scanResultLock = true;
         code = String(code).trim();
         setStatus('✓ 已识别：' + code + '，正在匹配物料…', 'success');
         // 关闭摄像头，避免连续触发
@@ -6265,7 +6336,7 @@ document.addEventListener('focusout', function(e) {
 // 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
 (function appUpdateGuard() {
     // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260826c';
+    var APP_CACHE = 'wms-cache-v20260826d';
     var _checkedOnce = false;
 
     function _formsDirty() {
