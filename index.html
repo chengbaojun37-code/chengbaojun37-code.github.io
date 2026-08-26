@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.16</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.17</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1362,6 +1362,7 @@ let deletedAtMap = {};        // v3.9.2：墓碑时间戳 code -> 删除时刻�
 let deletedHistKeys = {};     // v3.9.3：入库/出库历史记录删除墓碑：记录键(_genHistKey) -> 删除时刻。
                               // 历史 union 合并只增不减，本端删除的记录会被其他端旧数据"回流复活"；
                               // 墓碑随同步传播，合并时过滤墓碑键的记录，使删除跨设备生效。
+let deletedImageKeys = {};    // v3.12.17：图片删除墓碑：code -> 删除时刻。已删除的错图不允许任何端补传回云端；重新上传图片(editImageItem)时撤除墓碑。
 let _prevInvSnap = {};        // 库存快照：code -> JSON 串，用于 saveAllData 中检测变更并打 lastModified
 let currentFilter = 'all';
 let inboundImageData = null;
@@ -2414,6 +2415,7 @@ function saveAllData() {
         deletedCodes: deletedCodes,
         deletedAt: deletedAtMap,
         deletedHist: deletedHistKeys,
+        deletedImages: deletedImageKeys,
         dataVersion: dataVersion,
         resetAt: _carryResetAt,
         presetVersion: PRESET_VERSION,
@@ -2468,6 +2470,7 @@ function clearAllData() {
         outboundHistory = [];
         operationLogs = [];
         dataVersion = 0;
+        deletedImageKeys = {};   // v3.12.17：清空数据时同步清空图片墓碑
         refreshAll();
         showAlert('success', currentLang === 'zh' ? '全部数据已清除' : 'Все данные очищены', 'log');
     });
@@ -3112,6 +3115,7 @@ function loadAllData() {
             deletedCodes = data.deletedCodes || [];
             deletedAtMap = data.deletedAt || {};
             deletedHistKeys = data.deletedHist || {};
+            deletedImageKeys = data.deletedImages || {};
             dataVersion = data.dataVersion || 0;
             if (data.warehousePassword) warehousePassword = data.warehousePassword;
             if (inventory.length === 0 && inboundHistory.length === 0 && outboundHistory.length === 0 && operationLogs.length === 0) return false;
@@ -3469,6 +3473,8 @@ function editImageItem(code, base64Data) {
     item.image = base64Data;
     // v3.12.15：本机换图 → 打 force 标记，允许本次上传覆盖云端旧图（跨端换图仍生效），
     //           上传成功后自动清除；未标记的编号上传时以云端为准，防止旧设备旧图污染云端。
+    // v3.12.17：重新上传图片 → 撤除图片删除墓碑，该编号恢复正常图片同步。
+    if (deletedImageKeys[code]) { delete deletedImageKeys[code]; }
     try {
         var _f = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {};
         _f[code] = 1;
@@ -5238,6 +5244,19 @@ function mergeWarehouseData(local, gist) {
     });
     inboundHistory = inboundHistory.filter(function(r) { return !_histTombs[_genHistKey(r, 'in')]; });
     outboundHistory = outboundHistory.filter(function(r) { return !_histTombs[_genHistKey(r, 'out')]; });
+    // v3.12.17：图片删除墓碑——两端并集、时间戳取大者。
+    // 命中墓碑的编号：图片同步时禁止下载应用/上传补传，防止任何端本地缓存的错图回传污染云端。
+    // 重新上传图片(editImageItem)会从墓碑撤除该编号，恢复正常同步。
+    var _imgTombs = {};
+    [local.deletedImages, gist.deletedImages].forEach(function(m) {
+        if (!m) return;
+        for (var imk in m) {
+            if (Object.prototype.hasOwnProperty.call(m, imk)) {
+                var imt = Number(m[imk]) || 0;
+                if (!(_imgTombs[imk] >= imt)) _imgTombs[imk] = imt;
+            }
+        }
+    });
     var operationLogs = unionByKey(local.operationLogs, gist.operationLogs, 'log');
     var lv = local.dataVersion || 0, gv = gist.dataVersion || 0;
     recomputeAllStock(inventory, inboundHistory, outboundHistory);
@@ -5249,6 +5268,7 @@ function mergeWarehouseData(local, gist) {
         deletedCodes: _tombList,
         deletedAt: _outDelAt,
         deletedHist: _histTombs,
+        deletedImages: _imgTombs,
         dataVersion: Math.max(lv, gv) + 1,
         presetVersion: gist.presetVersion || local.presetVersion,
         warehousePassword: gist.warehousePassword || local.warehousePassword
@@ -5452,7 +5472,7 @@ function loadFromGist() {
             // 修复「写风暴」：之前每 10 秒轮询都会标记待上传，多端互相覆盖且逼近 API 限额。
             // v3.9.1：签名对比前同样剔除图片（云端图片已不同步，若直接对比整对象，
             // 本机带图 vs 云端无图会永远不等，导致每 10 秒误标记一次待上传）
-            function _sig(o){ if(!o) return ''; var so=_stripImagesForSync(o); return JSON.stringify({i:so.inventory||[],h1:so.inboundHistory||[],h2:so.outboundHistory||[],l:so.operationLogs||[],d:so.deletedCodes||[],dh:so.deletedHist||{}}); }
+            function _sig(o){ if(!o) return ''; var so=_stripImagesForSync(o); return JSON.stringify({i:so.inventory||[],h1:so.inboundHistory||[],h2:so.outboundHistory||[],l:so.operationLogs||[],d:so.deletedCodes||[],dh:so.deletedHist||{},di:so.deletedImages||{}}); }
             var _cloudOnly = null;
             [_gA, _gB].filter(Boolean).forEach(function(_s) { _cloudOnly = mergeWarehouseData(_cloudOnly, _s); });
             if (_sig(_mergedAcc) !== _sig(_cloudOnly)) {
@@ -5644,12 +5664,16 @@ function syncImagesToCloud() {
         // v3.12.15：force 标记集合——本机换图后标记的编号，上传时允许覆盖云端旧图（跨端换图）
         var _forceMap = {};
         try { _forceMap = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {}; } catch(eF) { _forceMap = {}; }
+        // v3.12.17：图片删除墓碑——墓碑编号的图一律不进合并结果（无 force 时），
+        // 云端分片里残留的墓碑键也会被本次重分片自然剔除（自愈）
+        var _imgTombs = deletedImageKeys || {};
         var merged = {};
         var order = [];
         function _push(k, v) { if (!merged[k]) { merged[k] = v; order.push(k); } }
-        cloud.shards.forEach(function(s) { Object.keys(s.map).forEach(function(k) { if (alive[k]) _push(k, s.map[k]); }); });
-        if (cloud.legacy) Object.keys(cloud.legacy.map).forEach(function(k) { if (alive[k]) _push(k, cloud.legacy.map[k]); });
+        cloud.shards.forEach(function(s) { Object.keys(s.map).forEach(function(k) { if (alive[k] && !_imgTombs[k]) _push(k, s.map[k]); }); });
+        if (cloud.legacy) Object.keys(cloud.legacy.map).forEach(function(k) { if (alive[k] && !_imgTombs[k]) _push(k, cloud.legacy.map[k]); });
         Object.keys(localMap).forEach(function(k) {
+            if (_imgTombs[k] && !_forceMap[k]) return;   // v3.12.17：墓碑图不补传（防本地错图回传）
             if (merged[k]) {
                 if (_forceMap[k]) merged[k] = localMap[k];   // v3.12.15：force（本机刚换图）→ 覆盖云端旧图
             } else { merged[k] = localMap[k]; order.push(k); }  // 云端缺失 → 补传本机图
@@ -5750,9 +5774,17 @@ function syncImagesFromCloud() {
         //           稍后由上传逻辑覆盖云端，实现跨端换图。
         var _forceMap = {};
         try { _forceMap = JSON.parse(localStorage.getItem('wh-img-force') || '{}') || {}; } catch(eF) { _forceMap = {}; }
+        // v3.12.17：图片删除墓碑——墓碑编号：清除本地缓存的错图（saveAllData 会连带清理 warehouse-images 独立键），
+        // 且不应用云端分片中可能残留的同编号图（自愈）。重新上传图片后墓碑撤除，恢复正常。
+        var _imgTombs = deletedImageKeys || {};
         var changed = false;
         (inventory || []).forEach(function(it) {
-            if (it && it.code && map[it.code] && !_forceMap[it.code]) {
+            if (!it || !it.code) return;
+            if (_imgTombs[it.code] && !_forceMap[it.code]) {
+                if (it.image) { it.image = ''; changed = true; }   // 墓碑：清掉本地错图
+                return;
+            }
+            if (map[it.code] && !_forceMap[it.code]) {
                 if (it.image !== map[it.code]) {
                     it.image = map[it.code];              // 云端真源：无条件对齐本地（修复 BC001 等旧图/错图混合）
                     changed = true;
@@ -6232,7 +6264,7 @@ document.addEventListener('focusout', function(e) {
 // 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
 (function appUpdateGuard() {
     // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260826b';
+    var APP_CACHE = 'wms-cache-v20260826c';
     var _checkedOnce = false;
 
     function _formsDirty() {
