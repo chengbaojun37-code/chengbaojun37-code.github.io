@@ -4,8 +4,8 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260826c'; // v3.12.17：图片删除墓碑机制（46张错图删除+防回传）
-const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'wms-cache-v20260826d'; // v3.12.18：扫码修复——摄像头启动重写（play竞态+二次开流破坏）+ ZXing 本地化
+const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './zxing-browser.min.js'];
 
 self.addEventListener('install', function(e) {
     e.waitUntil(
