@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260825d'; // v3.12.13：运行时版本自检（appUpdateGuard），根治 PWA/长开标签驻留旧版页面
+const CACHE = 'wms-cache-v20260826a'; // v3.12.15：图片同步改为"云端为唯一真源"（下载无条件覆盖本地错图/旧图；上传仅补缺失+force换图）
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', function(e) {
