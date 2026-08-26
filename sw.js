@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260826b'; // v3.12.16：修复云端图片分片错位（恢复8/24正确图，删除5张错图）
+const CACHE = 'wms-cache-v20260826c'; // v3.12.17：图片删除墓碑机制（46张错图删除+防回传）
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', function(e) {
