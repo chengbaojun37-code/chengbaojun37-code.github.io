@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.19</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.20</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1060,6 +1060,17 @@ const SYNC_FILE = "wms-sync-data.json";
 // 内存里仍是旧 JS（无表单清理逻辑）。SW 的 controllerchange 刷新只在"新 SW 恰好在页面存活期间
 // 安装"时触发，驻留跨越多次部署时永远错过。本版新增 appUpdateGuard：定期比对线上 sw.js 的
 // CACHE 与内嵌 APP_CACHE，不一致时表单空闲直接刷新、正在填写则显示顶部横幅提示手动刷新。
+// v3.12.20：两大彻底修复——
+//  ① 扫码后弹窗不返回（真机）：ZXing 0.1.5 源码级根因——解码循环遇到非 NotFound 异常会
+//    【永久终止且无提示】（画面正常但永远扫不出码）；且该版本 reset() 不存在、解码循环只能靠
+//    decodeFromVideoElement 返回的 Controls.stop() 停止。现保存控制柄、加心跳看门狗（6 秒无
+//    心跳自动重建引擎）、扫描间隔 500→200ms。
+//  ② 实时库存总表图片时有时无（三端每次缺图物料都不同）：三重根因——
+//    a) syncImagesFromCloud 图片下载完成后漏调 renderSummary()（总表一直是旧渲染）；
+//    b) localStorage 5MB 配额被挤爆：自动备份留 10 份(~1.7MB)+图片缓存(~3.3MB)+主数据双键，
+//       图片写入失败时旧逻辑随机丢弃一半图片 → 每次装载回的残缺图集都不同；
+//    c) 每次 10s 轮询 loadAllData 都会用残缺的本地图集覆盖内存。现备份 10→2 份、配额不足时
+//       先清空备份保留全量图片、图片同步后补渲染总表。
 // v3.12.12：出库后表单仍残留上一物料信息的最终修复——清理代码（reset+建议下拉+部门显隐）
 //           前移到 refreshAll/saveAllData 之前并整体 try/catch，任何后续异常都不再阻止表单清空。
 //           另：v3.12.11 部署上线后被回退（线上曾被覆盖回 v3.12.10），本版重新部署并换新缓存版本。
@@ -2444,9 +2455,19 @@ function saveAllData() {
         try {
             localStorage.setItem('warehouse-images', JSON.stringify(_imgStore));
         } catch (eImg) {
-            // 图片键写满（配额）：剔除最早的图片后重试一次；再失败则放弃本地图片缓存（云端分片仍是完整源，可自动补回）
+            // v3.12.20：图片键写满（配额）时，先牺牲可再生的自动备份（备份可从主数据重建），
+            // 绝不随机丢弃图片。旧逻辑直接丢弃前一半图片 → 下次 loadAllData 装回的是残缺图集 →
+            // 三端"每次打开缺图的物料都不同"的元凶。
             var _codes = Object.keys(_imgStore);
-            if (_codes.length > 20) {
+            var _imgSaved = false;
+            try {
+                localStorage.removeItem('warehouse-auto-backups');
+                localStorage.setItem('warehouse-images', JSON.stringify(_imgStore));
+                _imgSaved = true;
+                console.warn('saveAllData: 图片缓存写入接近配额，已清空自动备份腾出空间（图片全量保留）');
+            } catch (eImg1) {}
+            if (!_imgSaved && _codes.length > 20) {
+                // 最后兜底：仍失败才剔除一半（极端情况，正常不会再走到这里）
                 try {
                     var _keep = {};
                     for (var _ki = Math.floor(_codes.length / 2); _ki < _codes.length; _ki++) { _keep[_codes[_ki]] = _imgStore[_codes[_ki]]; }
@@ -3084,8 +3105,10 @@ function performAutoBackup() {
         backups = JSON.parse(localStorage.getItem('warehouse-auto-backups') || '[]');
     } catch(e) { backups = []; }
     backups.push({ time: ts, data: data });
-    // 只保留最近 10 个备份
-    if (backups.length > 10) backups = backups.slice(backups.length - 10);
+    // v3.12.20：只保留最近 2 个备份（每份 ~170KB）。旧版保留 10 个 = ~1.7MB，
+    // 长时间运行的会话会把 5MB localStorage 配额挤爆 → warehouse-images 写入失败 →
+    // 图片被随机逐出 → 三端图片时有时无。备份可从云端数据重建，少留不伤数据安全。
+    if (backups.length > 2) backups = backups.slice(backups.length - 2);
     try {
         localStorage.setItem('warehouse-auto-backups', JSON.stringify(backups));
     } catch(e) {
@@ -4828,16 +4851,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 启动自动备份
     // 页面加载时清理超出限制的旧备份
+    // v3.12.20：10 → 2 份（配额保护，详见 saveAllData 图片写入兜底）
     try {
         var autoBackups = JSON.parse(localStorage.getItem('warehouse-auto-backups') || '[]');
-        if (autoBackups.length > 10) {
-            autoBackups = autoBackups.slice(autoBackups.length - 10);
+        if (autoBackups.length > 2) {
+            autoBackups = autoBackups.slice(autoBackups.length - 2);
         }
         // v3.9：按总体积兜底裁剪。旧版曾把云端 1MB+ 的备份回灌进本地，
         // 加上每 5 分钟一份快照，极易逼近 localStorage 5MB 配额（写入失败丢数据）
         var _abStr = JSON.stringify(autoBackups);
-        while (_abStr.length > 600000 && autoBackups.length > 2) {
-            autoBackups = autoBackups.slice(autoBackups.length - 2);
+        while (_abStr.length > 400000 && autoBackups.length > 1) {
+            autoBackups = autoBackups.slice(autoBackups.length - 1);
             _abStr = JSON.stringify(autoBackups);
         }
         localStorage.setItem('warehouse-auto-backups', _abStr);
@@ -5840,6 +5864,8 @@ function syncImagesFromCloud() {
         if (changed) {
             saveAllData();          // 写回本机（图片只落本机，主同步文件不受影响）
             renderInventory();
+            renderSummary();        // v3.12.20：实时库存总表同样用 item.image 渲染，此前漏掉导致
+                                    // 图片下载完成后总表仍显示旧的无图状态（时有时无的直接原因）
             renderHistoryTables();
             // v3.12.6：本机每张图都与云端一致时才更新上传签名（防跳过必要上传；本机独有的图仍会触发上传补齐云端）
             var _newMap = _buildLocalImageMap();
@@ -5969,7 +5995,7 @@ document.addEventListener('focusout', function(e) {
 
     function stopCamera() {
         stopVideoWatchdog();   // v3.12.19：摄像头停止时同步停掉视频看门狗
-        try { if (codeReader && codeReader.reset) codeReader.reset(); } catch(e) {}
+        stopDecoding();        // v3.12.20：先停解码循环（controls.stop()，防僵尸循环）
         try { if (scanTrack) scanTrack.stop(); } catch(e) {}
         if (scanStream) {
             try { scanStream.getTracks().forEach(function(t){ t.stop(); }); } catch(e) {}
@@ -6076,14 +6102,34 @@ document.addEventListener('focusout', function(e) {
     }
 
     // 启动 ZXing 持续解码；任何一步失败都把原因显示到状态栏（旧版静默失败，无任何提示）
+    // v3.12.20：三个关键强化——
+    //  1) 保存 decodeFromVideoElement 返回的 Controls 控制柄：ZXing 0.1.5 的解码循环
+    //     只能靠 controls.stop() 停止（reset() 在该版本不存在），否则关闭弹窗后僵尸循环
+    //     仍每 500ms 解析已停止的视频帧；
+    //  2) 心跳计数：ZXing 源码中解码循环遇到非 NotFoundException 的异常会【永久终止循环
+    //     且不给任何提示】（真机上 drawImage/解码抛异常即触发）——摄像头画面正常但永远
+    //     扫不出码、弹窗永远不关的元凶。心跳配合看门狗检测循环死亡并自动重启引擎；
+    //  3) 扫描间隔 500ms→200ms：真机对焦需要多帧尝试，更快重试显著提高识别成功率。
+    var scanControls = null;     // ZXing 解码循环控制柄
+    var scanHeartbeat = 0;       // 解码循环心跳（循环每轮回调都会 +1，无论成功与否）
+    var scanEngineRestarts = 0;  // 引擎自动重启次数（诊断用）
     function startDecoding(video) {
+        scanControls = null;
+        scanHeartbeat = 0;
         try {
-            codeReader = new ZXingBrowser.BrowserMultiFormatReader();
-            var p = codeReader.decodeFromVideoElement(video, function(result, err) {
+            codeReader = new ZXingBrowser.BrowserMultiFormatReader(new Map(), {
+                delayBetweenScanAttempts: 200,
+                delayBetweenScanSuccess: 600,
+                tryPlayVideoTimeout: 5000
+            });
+            var p = codeReader.decodeFromVideoElement(video, function(result, err, controls) {
+                scanHeartbeat++;
                 if (result) onBarcodeScanned(result.getText());
             });
-            if (p && typeof p.catch === 'function') {
-                p.catch(function(e) {
+            if (p && typeof p.then === 'function') {
+                p.then(function(controls) {
+                    scanControls = controls || null;
+                }).catch(function(e) {
                     setStatus('扫码引擎启动失败，可用下方手动输入：' + ((e && e.message) || e), 'error');
                 });
             }
@@ -6092,14 +6138,43 @@ document.addEventListener('focusout', function(e) {
         }
     }
 
-    // 视频流看门狗：部分机型视频流会静默冻结（黑屏/停帧），每 2 秒检查一次并自愈
+    // v3.12.20：彻底停止解码循环（含僵尸循环兜底）
+    function stopDecoding() {
+        try { if (scanControls && scanControls.stop) scanControls.stop(); } catch (e) {}
+        scanControls = null;
+        try { if (codeReader && codeReader.reset) codeReader.reset(); } catch (e) {}
+        codeReader = null;
+    }
+
+    // 视频流看门狗：每 2 秒检查——
+    //  1) 视频流静默冻结（黑屏/停帧）时重新 play；
+    //  2) 解码循环死亡（心跳 6 秒无变化）时自动重建扫码引擎（不重开摄像头流）。
     var videoWatchdogTimer = null;
+    var _lastHb = -1, _lastHbTs = 0;
     function startVideoWatchdog(video) {
         stopVideoWatchdog();
+        _lastHb = -1; _lastHbTs = Date.now();
         videoWatchdogTimer = setInterval(function() {
             if (!video.srcObject) return;
             if (video.readyState === 0 || video.paused) {
                 try { video.play().catch(function() {}); } catch (e) {}
+            }
+            // 解码循环存活检测：弹窗开着、引擎在跑，但心跳不动 → 循环已死，重建引擎
+            if (codeReader) {
+                if (scanHeartbeat !== _lastHb) {
+                    _lastHb = scanHeartbeat;
+                    _lastHbTs = Date.now();
+                } else if (Date.now() - _lastHbTs > 6000) {
+                    scanEngineRestarts++;
+                    var _restartMsg = '扫码引擎已自动重启（第' + scanEngineRestarts + '次），请继续对准条形码';
+                    setStatus(_restartMsg, 'info');
+                    console.warn('[scan] 解码循环无心跳，重建扫码引擎 #' + scanEngineRestarts);
+                    try { scanControls && scanControls.stop(); } catch (e) {}
+                    scanControls = null;
+                    codeReader = null;
+                    startDecoding(video);
+                    _lastHbTs = Date.now();
+                }
             }
         }, 2000);
     }
@@ -6381,7 +6456,7 @@ document.addEventListener('focusout', function(e) {
 // 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
 (function appUpdateGuard() {
     // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260826e';
+    var APP_CACHE = 'wms-cache-v20260827a';
     var _checkedOnce = false;
 
     function _formsDirty() {
