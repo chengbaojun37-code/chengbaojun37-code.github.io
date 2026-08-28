@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.20</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.21</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -4390,6 +4390,7 @@ document.addEventListener('DOMContentLoaded', function() {
         showAlert('success', t.alertSuccessIn, 'inbound');
         refreshAll();
         saveAllData();
+        scheduleSync(true);
         this.reset();
         // v3.9.6：表单重置后采购地按钮组高亮同步复位到「中国集装箱」（与隐藏域默认值一致）
         document.getElementById('inbound-source').value = 'cn';
@@ -4770,6 +4771,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch(_) {}
         refreshAll();
         saveAllData();
+        scheduleSync(true);
         try { document.getElementById('outbound-code').focus(); } catch(_) {}
     });
 
@@ -5021,14 +5023,40 @@ function _syncFailToast(msg) {
     }
 }
 // 防抖型 saveToGist：频繁调用只发最后一次
-function saveToGist(immediate) {
-    if (immediate) {
+// ========== v3.12.21：健壮同步层（防丢数据 / 三端最终一致）==========
+var _syncDirty = false;            // 本地存在未成功上传的变更
+var _syncRetryTimer = null;
+var _syncMaxBackoff = 60000;       // 失败重试最大退避 60s
+function _markPending() {
+    _syncDirty = true;
+    try { localStorage.setItem('gist-pending-sync', 'true'); localStorage.setItem('gist-pending-sync-new', 'true'); } catch (e) {}
+    updateSyncStatus('pending');
+}
+function _clearPending() {
+    _syncDirty = false;
+    try { localStorage.removeItem('gist-pending-sync'); localStorage.removeItem('gist-pending-sync-new'); } catch (e) {}
+}
+function _scheduleSyncRetry(ms) {
+    clearTimeout(_syncRetryTimer);
+    var back = Math.min(Math.max(ms | 0, 1000), _syncMaxBackoff);
+    _syncRetryTimer = setTimeout(function () {
+        if (_gistLoading) { _scheduleSyncRetry(back); return; }
         _doSaveToGist();
-        return;
-    }
-    if (_gistSaveDebounceTimer) clearTimeout(_gistSaveDebounceTimer);
+    }, back);
+}
+function _flushSyncNow() {
+    if (_gistLoading) { _markPending(); return; }
+    clearTimeout(_gistSaveDebounceTimer);
+    _gistSaveDebounceTimer = null;
+    _syncDirty = true;
+    _doSaveToGist();
+}
+function scheduleSync(immediate) {
+    if (immediate) { _flushSyncNow(); return; }
+    clearTimeout(_gistSaveDebounceTimer);
     _gistSaveDebounceTimer = setTimeout(_doSaveToGist, _gistSaveDebounceMs);
 }
+function saveToGist(immediate) { scheduleSync(immediate); }
 // 实际执行 PATCH 的内部函数
 function _doSaveToGist() {
     if (_gistLoading) return;
@@ -5116,8 +5144,7 @@ function _doSaveToGist() {
         // 去重：payload 与上次成功上传相同时跳过
         if (payload === _gistLastSavePayload) {
             _gistSave409Retries = 0;
-            localStorage.removeItem('gist-pending-sync');
-            localStorage.removeItem('gist-pending-sync-new');
+            _clearPending();
             updateSyncStatus('synced');
             return null;
         }
@@ -5127,46 +5154,35 @@ function _doSaveToGist() {
         if (res.ok) {
             _gistLastSavePayload = payload;
             _gistSave409Retries = 0;
-            localStorage.removeItem('gist-pending-sync');
-            localStorage.removeItem('gist-pending-sync-new');
+            _clearPending();
             updateSyncStatus('synced');
         } else if (res.status === 409) {
-            // v3.12.6：并发写入 sha 冲突 —— 旧逻辑只重取 sha 后把同一份旧 payload 原样重 PUT，
-            // 会把另一端刚写入云端的数据整体抹掉（整文件 last-writer-wins，双端并发保存时互相覆盖的元凶）。
-            // 改为重新执行完整保存流程：重读本地最新数据 + 重新拉云端做记录级合并后再上传，双向数据都不丢。
-            if (_gistSave409Retries < 3) {
-                _gistSave409Retries++;
-                console.warn('Sync sha conflict (409), re-merge and retry #' + _gistSave409Retries);
-                setTimeout(function() { _doSaveToGist(); }, 1200);
-            } else {
-                console.warn('Sync sha conflict retries exhausted, defer to next poll');
-                _syncFailToast('conflict, retry later');
-                localStorage.setItem('gist-pending-sync', 'true');
-                localStorage.setItem('gist-pending-sync-new', 'true');
-                updateSyncStatus('pending');
-            }
+            // v3.12.6：并发写入 sha 冲突 —— 重新执行完整保存流程（重读本地+重拉云端记录级合并）后上传。
+            // v3.12.21：不再仅重试 3 次就放弃，改为持续退避重试直到成功，双向数据都不丢。
+            _gistSave409Retries++;
+            console.warn('Sync sha conflict (409), re-merge and retry #' + _gistSave409Retries);
+            _markPending();
+            _scheduleSyncRetry(1500);
         } else if (res.status === 403 || res.status === 429) {
-            // 被限流：按 X-RateLimit-Reset 设定恢复时间
+            // 被限流：按 X-RateLimit-Reset 设定恢复时间后重试
+            var _nowSec = Math.floor(Date.now() / 1000);
             var resetEpoch = res.headers.get('X-RateLimit-Reset');
-            _gistRateLimitedUntil = resetEpoch ? parseInt(resetEpoch, 10) : (nowSec + 300);
+            _gistRateLimitedUntil = resetEpoch ? parseInt(resetEpoch, 10) : (_nowSec + 60);
             console.warn('Sync rate-limited, will retry at ' + new Date(_gistRateLimitedUntil * 1000));
-            localStorage.setItem('gist-pending-sync', 'true');
-            localStorage.setItem('gist-pending-sync-new', 'true');
-            updateSyncStatus('pending');
-            var waitFor = (_gistRateLimitedUntil - nowSec + 5);
-            setTimeout(function() { _gistRateLimitedUntil = 0; _doSaveToGist(); }, waitFor * 1000);
+            _markPending();
+            var waitFor = Math.max((_gistRateLimitedUntil - _nowSec + 5), 5);
+            _scheduleSyncRetry(waitFor * 1000);
         } else {
             console.warn('Sync failed: HTTP ' + res.status);
             _syncFailToast('HTTP ' + res.status);
+            _markPending();
+            _scheduleSyncRetry(20000);
         }
     }).catch(function(err) {
         console.warn('Sync error:', err);
         _syncFailToast(String(err && err.message || err));
-        localStorage.setItem('gist-pending-sync', 'true');
-        localStorage.setItem('gist-pending-sync-new', 'true');
-        updateSyncStatus('pending');
-        // 网络错误：30 秒后重试
-        setTimeout(function() { _doSaveToGist(); }, 30000);
+        _markPending();
+        _scheduleSyncRetry(20000);
     });
 }
 
@@ -5585,8 +5601,8 @@ function loadFromGist() {
 }
 
 function trySyncPending() {
-    if (localStorage.getItem('gist-pending-sync') === 'true' || localStorage.getItem('gist-pending-sync-new') === 'true') {
-        saveToGist();
+    if (_syncDirty || localStorage.getItem('gist-pending-sync') === 'true' || localStorage.getItem('gist-pending-sync-new') === 'true') {
+        _flushSyncNow();
     }
 }
 
@@ -5894,15 +5910,25 @@ function updateSyncTimeDisplay() {
 // 每秒刷新时间标签
 setInterval(updateSyncTimeDisplay, 1000);
 
-// v3.11：切回前台立即拉取一次远端（手机切 App / 电脑切标签页回来时马上看到其它端的最新数据）
+// v3.11 / v3.12.21：切回前台立即拉取远端；切后台/锁屏立即冲刷未上传的本地变更（防防抖计时器被系统杀掉丢数据）
 document.addEventListener('visibilitychange', function() {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'hidden') {
+        try { _flushSyncNow(); } catch (e) { console.warn('flush on hide failed', e); }
+    } else if (document.visibilityState === 'visible') {
         try { pollGistSync(); } catch (e) { console.warn('visibility sync failed', e); }
     }
 });
 // 移动端 PWA 从后台恢复（部分浏览器不触发 visibilitychange）
 window.addEventListener('pageshow', function() {
     try { if (window._lastSyncTime && Date.now() - window._lastSyncTime > 15000) pollGistSync(); } catch (e) {}
+    try { trySyncPending(); } catch (e) {}
+});
+// v3.12.21：页面卸载/关闭前最后一次冲刷，确保本地未上传变更不丢失
+window.addEventListener('pagehide', function() {
+    try { _flushSyncNow(); } catch (e) {}
+});
+window.addEventListener('beforeunload', function() {
+    try { if (_syncDirty) { localStorage.setItem('gist-pending-sync', 'true'); localStorage.setItem('gist-pending-sync-new', 'true'); } } catch (e) {}
 });
 
 // 全局监听输入框聚焦，作为 isEditing 兜底（防止轮询打断扫码录入）
@@ -6456,7 +6482,7 @@ document.addEventListener('focusout', function(e) {
 // 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
 (function appUpdateGuard() {
     // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260827a';
+    var APP_CACHE = 'wms-cache-v20260828a';
     var _checkedOnce = false;
 
     function _formsDirty() {
