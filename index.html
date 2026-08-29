@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.22</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.23</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -6530,7 +6530,7 @@ document.addEventListener('focusout', function(e) {
 // 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
 (function appUpdateGuard() {
     // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260829a';
+    var APP_CACHE = 'wms-cache-v20260829b';
     var _checkedOnce = false;
 
     function _formsDirty() {
@@ -6598,11 +6598,38 @@ document.addEventListener('focusout', function(e) {
     _checkedOnce = true;
 })();
 
+// v3.12.23：版本心跳 —— 即使标签页长期开着不手动刷新，也能在部署后最多 1 分钟内
+// 自动检测到新版本（比对 version.json 的 cache 标记），先冲刷未上传数据再重载，
+// 彻底消灭「旧标签页跑旧代码、录入即丢数据」的窗口。
+(function versionHeartbeat() {
+    if (window.location.protocol.indexOf('http') !== 0) return;
+    var _lastReload = 0;
+    function _checkVer() {
+        try {
+            fetch('./version.json?_=' + Date.now(), { cache: 'no-store' }).then(function(r) {
+                return r.ok ? r.json() : null;
+            }).then(function(j) {
+                if (!j || !j.cache) return;
+                if (j.cache !== APP_CACHE) {
+                    var now = Date.now();
+                    if (now - _lastReload > 30000) {
+                        _lastReload = now;
+                        try { _flushSyncNow(); } catch (e) {}
+                        setTimeout(function() { window.location.reload(); }, 600);
+                    }
+                }
+            }).catch(function() {});
+        } catch (e) {}
+    }
+    setInterval(_checkVer, 60000);
+    _checkVer();
+})();
+
 // v3.12.22：file:// 桌面本地文件版专用版本检测（https 版由 appUpdateGuard + SW 处理）。
 // 本地文件无法注册 Service Worker，也不会自动更新，因此启动时拉取线上 index.html
 // 的版本号，若比本地新则弹提示，避免桌面版永远停留在旧版本。
 (function localFileVersionGuard() {
-    var LOCAL_VERSION = 'v3.12.22';
+    var LOCAL_VERSION = 'v3.12.23';
     var ONLINE_URL = 'https://chengbaojun37-code.github.io/index.html';
     if (window.location.protocol !== 'file:') return;
     function _showLocalUpdateTip(remoteVer) {
