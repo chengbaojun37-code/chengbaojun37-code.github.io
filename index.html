@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.23</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.24</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -4136,6 +4136,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // 会误杀正常库存）。函数保留但不再调用。
         _gistLoading = false;
         trySyncPending();
+        // v3.12.24：手机端(PWA 切后台会杀掉上传定时器)——打开瞬间就把本地尚未上传的数据推到云端，
+        // 直接解决「录入后返回登录，数据消失」：数据一旦落盘，下次打开必定补齐上传
+        try { _flushSyncNow(); } catch (e) {}
     });
     window.addEventListener('online', trySyncPending);
     // 从全部入库记录恢复累计入库
@@ -4393,6 +4396,8 @@ document.addEventListener('DOMContentLoaded', function() {
         showAlert('success', t.alertSuccessIn, 'inbound');
         refreshAll();
         saveAllData();
+        // v3.12.24：先持久化「待上传」标记，确保即使手机切后台杀掉上传定时器，下次打开也能补传
+        try { localStorage.setItem('gist-pending-sync', 'true'); localStorage.setItem('gist-pending-sync-new', 'true'); } catch (e) {}
         scheduleSync(true);
         this.reset();
         // v3.9.6：表单重置后采购地按钮组高亮同步复位到「中国集装箱」（与隐藏域默认值一致）
@@ -4774,6 +4779,8 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch(_) {}
         refreshAll();
         saveAllData();
+        // v3.12.24：先持久化「待上传」标记，确保即使手机切后台杀掉上传定时器，下次打开也能补传
+        try { localStorage.setItem('gist-pending-sync', 'true'); localStorage.setItem('gist-pending-sync-new', 'true'); } catch (e) {}
         scheduleSync(true);
         try { document.getElementById('outbound-code').focus(); } catch(_) {}
     });
@@ -6463,6 +6470,8 @@ document.addEventListener('focusout', function(e) {
             // 固定 URL 注册（不带查询串），由浏览器标准机制检测 sw.js 内容更新
             navigator.serviceWorker.register('sw.js').then(function(reg) {
                 console.log('[PWA] Service Worker 已注册', reg.scope);
+                // v3.12.24：注册后立刻强制检查更新，缩短旧 Service Worker 退出、新代码生效的时间
+                try { reg.update(); } catch (e) {}
                 // 新版本已就绪 → 立即激活（激活接管后由 controllerchange 触发自动刷新）
                 var activateNew = function() {
                     if (reg.waiting) reg.waiting.postMessage({ type: 'skipWaiting' });
@@ -6530,7 +6539,7 @@ document.addEventListener('focusout', function(e) {
 // 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
 (function appUpdateGuard() {
     // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260829b';
+    var APP_CACHE = 'wms-cache-v20260829c';
     var _checkedOnce = false;
 
     function _formsDirty() {
