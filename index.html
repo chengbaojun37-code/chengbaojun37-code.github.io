@@ -550,7 +550,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.21</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.22</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -562,6 +562,7 @@
         </div>
         <button class="btn-save-system admin-only" id="btn-save-system">保存系统</button>
         <button class="btn-save-system admin-only" id="btn-sync-pages" style="background:#9b59b6;margin-left:6px;" title="将当前系统（含扫码模块）同步推送到 GitHub Pages 网页版">同步到网页版</button>
+        <button class="btn-save-system admin-only" id="btn-force-upload" style="background:#e74c3c;margin-left:6px;" title="以当前设备本地数据强制覆盖云端，确保其它端跟随本设备">以本地覆盖云端</button>
         <div class="lang-selector">
             <button class="lang-btn active" data-lang="zh">中文</button>
             <button class="lang-btn" data-lang="ru">Русский</button>
@@ -1247,7 +1248,7 @@ const translations = {
         deleteLogConfirm: '确认删除这条记录？将同时恢复库存数量', deleteLogTitle: '删除记录', logColAction: '操作',
         catAll: '全部', catEquipment: '设备', catNewEquipment: '新设备', catOldEquipment: '旧设备', catParts: '配件', catPackaging: '包材', catFood: '食材', catSelfPurchase: '自采',
         sourceLabel: '采购地', sourceCN: '中国集装箱', sourceCNLog: '中国物流', sourceRU: '俄罗斯本地', sourceAll: '全部',
-        btnSaveSystem: '保存系统', saveSuccess: '保存成功，缓存已清理', saveCleaned: '保存成功，缓存已清理，用量: ', saveFailed: '保存失败'
+        btnSaveSystem: '保存系统', btnForceUpload: '以本地覆盖云端', forceUploadConfirm: '确定用当前设备本地数据强制覆盖云端？\n\n这会覆盖手机/网页端的数据，请确认当前设备数据是最新的。', forceUploadSuccess: '本地数据已强制覆盖云端', forceUploadFail: '强制覆盖失败: ', saveSuccess: '保存成功，缓存已清理', saveCleaned: '保存成功，缓存已清理，用量: ', saveFailed: '保存失败'
     },
     ru: {
         headerTitle: 'Система управления складом',
@@ -1347,7 +1348,7 @@ const translations = {
         deleteLogConfirm: 'Удалить эту запись? Количество на складе будет восстановлено', deleteLogTitle: 'Удалить запись', logColAction: 'Действие',
         catAll: 'Все', catEquipment: 'Оборудование', catNewEquipment: 'Новое оборудование', catOldEquipment: 'Старое оборудование', catParts: 'Запчасти', catPackaging: 'Упаковка', catFood: 'Продукты', catSelfPurchase: 'Самозакуп',
         sourceLabel: 'Место закупки', sourceCN: 'Китай (контейнер)', sourceCNLog: 'Китай (логистика)', sourceRU: 'Россия (местное)', sourceAll: 'Все',
-        btnSaveSystem: 'Сохранить', saveSuccess: 'Сохранено, кэш очищен', saveCleaned: 'Сохранено, кэш очищен, объём: ', saveFailed: 'Ошибка сохранения'
+        btnSaveSystem: 'Сохранить', btnForceUpload: 'Локальное → облако', forceUploadConfirm: 'Заменить облачные данные локальными данными этого устройства?\n\nЭто перезапишет данные на телефоне/в веб-версии. Убедитесь, что на этом устройстве последние данные.', forceUploadSuccess: 'Локальные данные перезаписали облако', forceUploadFail: 'Ошибка перезаписи: ', saveSuccess: 'Сохранено, кэш очищен', saveCleaned: 'Сохранено, кэш очищен, объём: ', saveFailed: 'Ошибка сохранения'
     }
 };
 
@@ -2059,6 +2060,8 @@ function switchLanguage(lang) {
     document.getElementById('btn-clear-all').title = t.btnClearAllTitle;
     document.getElementById('btn-set-password').textContent = t.pwdSetBtn;
     document.getElementById('btn-save-system').textContent = t.btnSaveSystem;
+    const btnForceUpload = document.getElementById('btn-force-upload');
+    if (btnForceUpload) btnForceUpload.textContent = t.btnForceUpload;
     const display = document.getElementById('current-user-display');
     if (currentUser) {
         display.textContent = t.currentUserPrefix + currentUser;
@@ -4964,6 +4967,13 @@ document.addEventListener('DOMContentLoaded', function() {
             'summary');
     });
 
+    // v3.12.22：以本地数据强制覆盖云端（解决 file:// 本地版与网页版数据分裂）
+    document.getElementById('btn-force-upload').addEventListener('click', function() {
+        if (!isAdmin) return;
+        if (!confirm(t.forceUploadConfirm)) return;
+        forceUploadLocalToCloud();
+    });
+
     // Gist 同步状态点点击手动同步
     document.getElementById('gist-sync-status').addEventListener('click', function() {
         updateSyncStatus('syncing');
@@ -5184,6 +5194,44 @@ function _doSaveToGist() {
         _markPending();
         _scheduleSyncRetry(20000);
     });
+}
+
+// v3.12.22：以本地数据强制覆盖云端（不做合并），用于 file:// 本地版与网页版数据分裂时以本地为准。
+function forceUploadLocalToCloud() {
+    if (_gistLoading) { showAlert('warning', currentLang === 'zh' ? '正在同步中，请稍后再试' : 'Синхронизация выполняется, попробуйте позже', 'summary'); return; }
+    var localRaw = localStorage.getItem('warehouse-data-new') || localStorage.getItem('warehouse-data');
+    if (!localRaw) { showAlert('danger', currentLang === 'zh' ? '本地没有可覆盖的数据' : 'Нет локальных данных для перезаписи', 'summary'); return; }
+    _gistLoading = true;
+    updateSyncStatus('syncing');
+    var _apiBase = 'https://api.github.com/repos/' + SYNC_REPO + '/contents/' + SYNC_FILE;
+    fetch(_apiBase, { headers: { 'Authorization': 'token ' + SYNC_TOKEN } })
+        .then(function(r) { return r.ok ? r.json() : { sha: null }; })
+        .then(function(meta) {
+            var body = { message: 'wms force upload from local (v3.12.22)', content: _b64encode(JSON.stringify({ 'warehouse-data-new': localRaw })) };
+            if (meta && meta.sha) body.sha = meta.sha;
+            return fetch(_apiBase, {
+                method: 'PUT',
+                headers: { 'Authorization': 'token ' + SYNC_TOKEN, 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+        })
+        .then(function(r) {
+            _gistLoading = false;
+            if (r.ok) {
+                _gistLastSavePayload = JSON.stringify({ 'warehouse-data-new': localRaw });
+                _clearPending();
+                updateSyncStatus('synced');
+                showAlert('success', t.forceUploadSuccess, 'summary');
+            } else {
+                updateSyncStatus('error');
+                showAlert('danger', t.forceUploadFail + r.status + ' ' + r.statusText, 'summary');
+            }
+        })
+        .catch(function(err) {
+            _gistLoading = false;
+            updateSyncStatus('error');
+            showAlert('danger', t.forceUploadFail + String(err && err.message || err), 'summary');
+        });
 }
 
 // ========== 记录级合并（多端防互相覆盖） ==========
@@ -6482,7 +6530,7 @@ document.addEventListener('focusout', function(e) {
 // 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
 (function appUpdateGuard() {
     // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260828a';
+    var APP_CACHE = 'wms-cache-v20260829a';
     var _checkedOnce = false;
 
     function _formsDirty() {
@@ -6520,7 +6568,8 @@ document.addEventListener('focusout', function(e) {
         // 仅 http(s) 环境（file:// 桌面版 fetch 会失败，静默跳过）
         if (window.location.protocol.indexOf('http') !== 0) return;
         try {
-            fetch('./sw.js', { cache: 'no-store' }).then(function(r) {
+            // v3.12.22：加时间戳破坏 GitHub Pages CDN 缓存，确保部署后立即检测到新 SW 版本
+            fetch('./sw.js?_=' + Date.now(), { cache: 'no-store' }).then(function(r) {
                 if (!r.ok) return null;
                 return r.text();
             }).then(function(txt) {
@@ -6547,6 +6596,47 @@ document.addEventListener('focusout', function(e) {
     // 首次加载 5 秒后检查一次（跳过初始化高峰）
     setTimeout(_checkAppUpdate, 5000);
     _checkedOnce = true;
+})();
+
+// v3.12.22：file:// 桌面本地文件版专用版本检测（https 版由 appUpdateGuard + SW 处理）。
+// 本地文件无法注册 Service Worker，也不会自动更新，因此启动时拉取线上 index.html
+// 的版本号，若比本地新则弹提示，避免桌面版永远停留在旧版本。
+(function localFileVersionGuard() {
+    var LOCAL_VERSION = 'v3.12.22';
+    var ONLINE_URL = 'https://chengbaojun37-code.github.io/index.html';
+    if (window.location.protocol !== 'file:') return;
+    function _showLocalUpdateTip(remoteVer) {
+        if (document.getElementById('local-update-tip')) return;
+        var div = document.createElement('div');
+        div.id = 'local-update-tip';
+        div.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#e74c3c;color:#fff;' +
+            'padding:12px 16px;text-align:center;font-size:14px;font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,.3);';
+        var isZh = (typeof currentLang !== 'undefined' && currentLang === 'zh');
+        div.innerHTML = (isZh
+            ? '⚠️ 桌面文件版本 ' + LOCAL_VERSION + '，线上已更新到 ' + remoteVer + '。请从 GitHub 下载最新 index.html 替换桌面文件，否则同步逻辑可能不一致。'
+            : '⚠️ Локальная версия ' + LOCAL_VERSION + ', онлайн ' + remoteVer + '. Скачайте новый index.html с GitHub.') +
+            ' <button id="local-update-close" style="margin-left:12px;padding:4px 10px;border:none;border-radius:4px;background:#fff;color:#e74c3c;cursor:pointer;">×</button>';
+        document.body.appendChild(div);
+        document.getElementById('local-update-close').onclick = function() { div.remove(); };
+    }
+    function _check() {
+        try {
+            fetch(ONLINE_URL + '?_=' + Date.now(), { cache: 'no-store', mode: 'cors' })
+                .then(function(r) { return r.ok ? r.text() : null; })
+                .then(function(html) {
+                    if (!html) return;
+                    var m = html.match(/<span[^>]*id="app-version"[^>]*>v3\.12\.(\d+)<\/span>/);
+                    if (!m) return;
+                    var remotePatch = parseInt(m[1], 10);
+                    var localPatch = parseInt(LOCAL_VERSION.replace(/[^\d]/g, '').slice(3), 10) || 0;
+                    if (remotePatch > localPatch) _showLocalUpdateTip('v3.12.' + remotePatch);
+                }).catch(function() {});
+        } catch (e) {}
+    }
+    // 启动 8 秒后检查，避免阻塞初始化
+    setTimeout(_check, 8000);
+    // 每小时巡检一次
+    setInterval(_check, 3600000);
 })();
 
 
