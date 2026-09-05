@@ -444,6 +444,16 @@
         .dept-item-del:disabled { border-color:#ccc; color:#ccc; cursor:not-allowed; }
         .dept-item-del:disabled:hover { background:none; color:#ccc; }
         .dept-manager-empty { text-align:center; color:#999; padding:30px 0; font-size:14px; }
+        /* v3.12.25：部门管理新增「新建」入口与「修改」按钮 */
+        .dept-manager-add { display:flex; gap:8px; padding:14px 20px; border-bottom:1px solid #eee; }
+        .dept-manager-add input { flex:1; padding:9px 10px; border:1px solid #ddd; border-radius:6px; font-size:14px; }
+        .dept-manager-add button { background:#3498db; color:#fff; border:none; border-radius:6px; padding:0 16px; font-size:13px; cursor:pointer; white-space:nowrap; }
+        .dept-manager-add button:hover { background:#2980b9; }
+        .dept-item-edit { background:none; border:1px solid #f39c12; color:#f39c12; border-radius:4px; cursor:pointer; padding:4px 10px; font-size:12px; margin-left:12px; white-space:nowrap; }
+        .dept-item-edit:hover { background:#f39c12; color:#fff; }
+        .dept-item-edit-input { flex:1; padding:6px 8px; border:1px solid #3498db; border-radius:4px; font-size:14px; min-width:0; }
+        .dept-item-edit-save { background:#27ae60; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:12px; margin-left:8px; cursor:pointer; white-space:nowrap; }
+        .dept-item-edit-cancel { background:none; border:1px solid #999; color:#999; border-radius:4px; padding:4px 10px; font-size:12px; margin-left:6px; cursor:pointer; white-space:nowrap; }
         .btn-manage-dept { background:none; border:1px solid #3498db; color:#3498db; border-radius:4px; cursor:pointer; padding:6px 12px; font-size:13px; vertical-align:middle; margin-left:6px; }
         .btn-manage-dept:hover { background:#3498db; color:white; }
 
@@ -1106,6 +1116,15 @@ const SYNC_FILE = "wms-sync-data.json";
 //              max(本机时钟, 本端见过的最大时间戳+1)，新者胜合并规则不再被快时钟设备破坏。
 // v3.12.5：修复 v3.12.4 回归——出库「修改」按钮点击无反应：getDepartmentList/saveCustomDepartment
 //           原定义在 DOMContentLoaded 闭包内，全局的 editOutboundRecord 调用时抛 ReferenceError。现已暴露到全局。
+// v3.12.26：实时库存总表「修改」持久化修复——累计入库/出库改为持久修正常数 _adjIn/_adjOut（差额）存储，
+//           recomputeAllStock/_recomputeStockForCode/restoreDateInbound 重算时统一叠加该常数，
+//           手动修正不再被每 10 秒的历史重算冲回（治本：真正纠错仍应在入库/出库管理处改原始记录）。
+//           同时 mergeWarehouseData 云端胜出时保留本地修正偏移，避免跨端同步覆盖手动修正。
+// v3.12.25：领用部门管理增强——① 管理弹窗新增「+ 添加」输入框，可直接新建部门（绕过出库表单路径，
+//           并解除历史黑名单，使曾被删除的部门重新可选）；② 每个部门新增「修改」按钮：内联重命名，
+//           同步更新 warehouse_dept_list、本地黑名单与全部出库记录的部门引用，并触发 Gist 同步（改名跨端生效）。
+//           背景：部门列表仅存 localStorage，下拉由 PRESET+本地列表+出库历史频率合并而成；若某设备曾删除过该部门，
+//           会进入 warehouse_dept_blacklist 导致即便已用于出库也不在下拉出现。新增「添加」入口可彻底解除该阻塞。
 //           新增出库记录「删除」按钮（管理员）：误录出库可直接删除（墓碑跨设备生效），库存自动回补，随后可重新出库。
 // v3.12.4：出库编辑弹窗的领用部门改为下拉选择框（含现有部门+未分类+新建部门），避免移动端输入法/datalist取值失败。
 //           自定义部门输入框在选择“新建部门”时出现，隐藏域实时同步最终值，保存逻辑不变。
@@ -2772,6 +2791,25 @@ function deleteItem(code) { if (!isAdmin) return;
 // 库存按历史重算（recomputeAllStock 语义一致），保证各端收敛到相同数字。
 
 // 按入库/出库历史重算单个物料的库存（与 recomputeAllStock 同语义）
+// v3.12.26：计算某物料的"真实历史累计"（不含手动修正偏移），供手动修正反推差额使用
+function _rawCumIn(code) {
+    var s = 0;
+    (inboundHistory || []).forEach(function(r) { if (r.code === code) { s += (Number(r.quantity) || 0); } });
+    return s;
+}
+function _rawCumOut(code) {
+    var s = 0;
+    (outboundHistory || []).forEach(function(r) { if (r.code === code) { s += (Number(r.quantity) || 0); } });
+    return s;
+}
+// v3.12.26：把"真实历史累计"叠加手动修正偏移后写回物料（统一入口，所有重算路径共用）
+function _applyStockAdj(it) {
+    if (!it) return;
+    it._cumIn = (it._cumIn || 0) + (it._adjIn || 0);
+    it._cumOut = (it._cumOut || 0) + (it._adjOut || 0);
+    it.stock = (it.initialStock || 0) + it._cumIn - it._cumOut;
+    if (it.stock < 0) it.stock = 0;
+}
 function _recomputeStockForCode(code) {
     var it = null;
     for (var i = 0; i < inventory.length; i++) { if (inventory[i].code === code) { it = inventory[i]; break; } }
@@ -2781,7 +2819,7 @@ function _recomputeStockForCode(code) {
     outboundHistory.forEach(function(r) { if (r.code === code) { cout += (Number(r.quantity) || 0); hasHist = true; } });
     if (hasHist) {
         it._cumIn = cin; it._cumOut = cout;
-        it.stock = (it.initialStock || 0) + cin - cout;
+        _applyStockAdj(it);   // v3.12.26：叠加手动修正偏移
     }
     // 无任何剩余历史：保留物料自身库存（与 recomputeAllStock 的 v3.8 保护语义一致），
     // 由调用方在删除最后一条记录时手动按差值调整
@@ -3470,9 +3508,22 @@ function editItemData(code, newCumIn, newCumOut, newPrice) {
     const oldCumIn = item._cumIn || 0;
     const oldCumOut = item._cumOut || 0;
     const oldPrice = item.unitPrice;
+    // v3.12.26：实时库存总表的"修改"不再直接覆盖累计（会被 10 秒重算冲掉），
+    // 而是把用户输入当作"目标显示值"，反推持久修正常数 _adjIn/_adjOut（差额）。
+    // 之后每次重算都叠加该常数 → 手动修正不再弹回。要在底层真正纠错请用"入库管理处/出库管理处"。
     let changed = false;
-    if (newCumIn !== oldCumIn) { item._cumIn = newCumIn; changed = true; }
-    if (newCumOut !== oldCumOut) { item._cumOut = newCumOut; changed = true; }
+    if (newCumIn !== oldCumIn) {
+        var _rawIn = _rawCumIn(code);
+        item._adjIn = newCumIn - _rawIn;   // 差额即修正偏移，可正可负
+        item._cumIn = newCumIn;            // 立即生效
+        changed = true;
+    }
+    if (newCumOut !== oldCumOut) {
+        var _rawOut = _rawCumOut(code);
+        item._adjOut = newCumOut - _rawOut;
+        item._cumOut = newCumOut;
+        changed = true;
+    }
     if (newPrice !== null && newPrice !== oldPrice) { item.unitPrice = newPrice; changed = true; }
     if (!changed) return false;
     // 重新计算当前库存
@@ -3983,8 +4034,11 @@ function restoreDateInbound(year, month, day) {
         var code = inventory[j].code;
         if (summary.hasOwnProperty(code)) {
             // 取 recalculate 值和已保存值中的较大者，防止 Gist 数据缺失导致 _cumIn 回退
-            inventory[j]._cumIn = Math.max(summary[code], inventory[j]._cumIn || 0);
+            // v3.12.26：叠加手动修正偏移（summary 为真实历史累计，不含偏移）
+            inventory[j]._cumIn = Math.max(summary[code] + (inventory[j]._adjIn || 0), inventory[j]._cumIn || 0);
+            inventory[j]._cumOut = (inventory[j]._cumOut || 0);
             inventory[j].stock = inventory[j].initialStock + inventory[j]._cumIn - inventory[j]._cumOut;
+            if (inventory[j].stock < 0) inventory[j].stock = 0;
         }
     }
     return summary;
@@ -4579,6 +4633,17 @@ document.addEventListener('DOMContentLoaded', function() {
     if (btnManageDept) {
         btnManageDept.addEventListener('click', showDeptManager);
     }
+    // v3.12.25：部门管理弹窗内的「+ 添加」按钮
+    var btnDeptAdd = document.getElementById('btn-dept-add');
+    if (btnDeptAdd) {
+        btnDeptAdd.addEventListener('click', addDeptFromManager);
+    }
+    var deptManagerNewInput = document.getElementById('dept-manager-new');
+    if (deptManagerNewInput) {
+        deptManagerNewInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); addDeptFromManager(); }
+        });
+    }
     // 关闭按钮
     var btnCloseDeptMgr = document.getElementById('btn-close-dept-manager');
     if (btnCloseDeptMgr) {
@@ -4674,6 +4739,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 var nameSpan = document.createElement('span');
                 nameSpan.className = 'dept-item-name';
                 nameSpan.textContent = d;
+                var editBtn = document.createElement('button');
+                editBtn.className = 'dept-item-edit';
+                editBtn.textContent = currentLang === 'zh' ? '修改' : 'Изменить';
+                editBtn.addEventListener('click', (function(dept) {
+                    return function() { startEditDept(div, dept); };
+                })(d));
                 var delBtn = document.createElement('button');
                 delBtn.className = 'dept-item-del';
                 delBtn.textContent = currentLang === 'zh' ? '删除' : 'Удалить';
@@ -4681,11 +4752,98 @@ document.addEventListener('DOMContentLoaded', function() {
                     return function() { removeDeptFromList(dept); };
                 })(d));
                 div.appendChild(nameSpan);
+                div.appendChild(editBtn);
                 div.appendChild(delBtn);
                 body.appendChild(div);
             });
         }
         overlay.classList.add('show');
+        // 聚焦新建输入框
+        var addInput = document.getElementById('dept-manager-new');
+        if (addInput) addInput.focus();
+    }
+
+    // v3.12.25：在管理弹窗内直接「新建」部门——绕过出库表单路径，可靠写入列表并清除黑名单
+    function addDeptFromManager() {
+        var input = document.getElementById('dept-manager-new');
+        if (!input) return;
+        var dept = normalizeDepartment(input.value || '');
+        if (!dept) { try { input.focus(); } catch (_) {} return; }
+        // 新建 = 解除历史黑名单（若曾被删除，手动新增即恢复）
+        var blacklist = [];
+        try { blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist') || '[]'); } catch (e) {}
+        var bi = blacklist.indexOf(dept);
+        if (bi !== -1) { blacklist.splice(bi, 1); localStorage.setItem('warehouse_dept_blacklist', JSON.stringify(blacklist)); }
+        var customList = [];
+        try { customList = JSON.parse(localStorage.getItem('warehouse_dept_list') || '[]'); } catch (e) {}
+        if (customList.indexOf(dept) === -1) {
+            customList.push(dept);
+            localStorage.setItem('warehouse_dept_list', JSON.stringify(customList));
+        }
+        input.value = '';
+        renderDeptDatalist();
+        showDeptManager();
+        saveAllData();
+        showAlert('success', (currentLang === 'zh' ? '已添加部门「' + dept + '」' : 'Добавлен отдел: ' + dept), 'outbound');
+    }
+
+    // v3.12.25：把某部门行切换为内联编辑（input + 保存/取消）
+    function startEditDept(div, oldDept) {
+        div.innerHTML = '';
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'dept-item-edit-input';
+        input.value = oldDept;
+        var saveBtn = document.createElement('button');
+        saveBtn.className = 'dept-item-edit-save';
+        saveBtn.textContent = currentLang === 'zh' ? '保存' : 'Сохр.';
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'dept-item-edit-cancel';
+        cancelBtn.textContent = currentLang === 'zh' ? '取消' : 'Отмена';
+        div.appendChild(input);
+        div.appendChild(saveBtn);
+        div.appendChild(cancelBtn);
+        try { input.focus(); input.select(); } catch (_) {}
+        var doSave = function() { renameDept(oldDept, input.value); };
+        saveBtn.addEventListener('click', doSave);
+        cancelBtn.addEventListener('click', function() { showDeptManager(); });
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+            else if (e.key === 'Escape') { showDeptManager(); }
+        });
+    }
+
+    // v3.12.25：重命名部门——同步更新 warehouse_dept_list、黑名单、以及所有出库记录中的引用
+    function renameDept(oldDeptRaw, newDeptRaw) {
+        var oldDept = normalizeDepartment(oldDeptRaw || '');
+        var newDept = normalizeDepartment(newDeptRaw || '');
+        if (!newDept) { showDeptManager(); return; }
+        if (newDept === oldDept) { showDeptManager(); return; }
+        // 更新 warehouse_dept_list
+        var customList = [];
+        try { customList = JSON.parse(localStorage.getItem('warehouse_dept_list') || '[]'); } catch (e) {}
+        var idx = customList.indexOf(oldDept);
+        if (idx !== -1) customList[idx] = newDept;
+        else if (customList.indexOf(newDept) === -1) customList.push(newDept);
+        localStorage.setItem('warehouse_dept_list', JSON.stringify(customList));
+        // 更新黑名单：移除新旧名称，避免被再次过滤
+        var blacklist = [];
+        try { blacklist = JSON.parse(localStorage.getItem('warehouse_dept_blacklist') || '[]'); } catch (e) {}
+        var bi = blacklist.indexOf(oldDept); if (bi !== -1) blacklist.splice(bi, 1);
+        var bi2 = blacklist.indexOf(newDept); if (bi2 !== -1) blacklist.splice(bi2, 1);
+        localStorage.setItem('warehouse_dept_blacklist', JSON.stringify(blacklist));
+        // 更新所有出库记录中的部门引用
+        var changed = 0;
+        if (outboundHistory && outboundHistory.length) {
+            outboundHistory.forEach(function(r) {
+                if (normalizeDepartment(r.department || '') === oldDept) { r.department = newDept; changed++; }
+            });
+        }
+        renderDeptDatalist();
+        showDeptManager();
+        saveAllData();
+        if (changed > 0) { refreshAll(); try { localStorage.setItem('gist-pending-sync', 'true'); localStorage.setItem('gist-pending-sync-new', 'true'); } catch (_) {} scheduleSync(true); }
+        showAlert('success', (currentLang === 'zh' ? '部门已重命名为「' + newDept + '」' : 'Отдел переименован: ' + newDept), 'outbound');
     }
 
     function hideDeptManager() {
@@ -5296,7 +5454,7 @@ function recomputeAllStock(inv, inH, outH) {
         if (!hasHist) return; // 无历史记录：保留物料自身库存，防止误清零
         it._cumIn = cin[it.code] || 0;
         it._cumOut = cout[it.code] || 0;
-        it.stock = (it.initialStock || 0) + it._cumIn - it._cumOut;
+        _applyStockAdj(it); // v3.12.26：叠加手动修正偏移，保证实时总表的修改不被每次重算冲掉
     });
 }
 
@@ -5319,6 +5477,13 @@ function mergeWarehouseData(local, gist) {
             if (editingCodes[it.code]) return;
             var lt = invMap[it.code].lastModified || 0, gt = it.lastModified || 0;
             if (gt > lt) {   // 时间戳新者胜
+                // v3.12.26：云端胜出时若本地存在手动修正偏移(_adjIn/_adjOut)而云端没有，
+                // 把本地偏移拷到云端对象，避免把用户在实时总表的手动修正覆盖掉。
+                if ((invMap[it.code]._adjIn != null || invMap[it.code]._adjOut != null)
+                    && it._adjIn == null && it._adjOut == null) {
+                    it._adjIn = invMap[it.code]._adjIn || 0;
+                    it._adjOut = invMap[it.code]._adjOut || 0;
+                }
                 // v3.9.1：图片不再跨设备同步。云端条目获胜时若自身没带图片，
                 // 保留本机已有的图片，避免瘦身数据把本机图片抹掉。
                 if (!it.image && invMap[it.code].image) {
@@ -6709,6 +6874,10 @@ document.addEventListener('focusout', function(e) {
         <div class="dept-manager-header">
             <h3 id="dept-manager-title">管理领用部门 / Управление отделами</h3>
             <button class="dept-manager-close" id="btn-close-dept-manager">&times;</button>
+        </div>
+        <div class="dept-manager-add">
+            <input type="text" id="dept-manager-new" placeholder="新建部门名称 / Новый отдел">
+            <button type="button" id="btn-dept-add">+ 添加 / Добавить</button>
         </div>
         <div class="dept-manager-body" id="dept-manager-body"></div>
     </div>
