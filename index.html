@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.24</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.26</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -6782,8 +6782,11 @@ document.addEventListener('focusout', function(e) {
         try {
             fetch('./version.json?_=' + Date.now(), { cache: 'no-store' }).then(function(r) {
                 return r.ok ? r.json() : null;
-            }).then(function(j) {
+            })            .then(function(j) {
                 if (!j || !j.cache) return;
+                // v3.12.26：把线上真实版本号写回标题（之前写死 3.12.24，导致升版后显示不变）
+                var _av = document.getElementById('app-version');
+                if (_av && j.version) _av.textContent = 'v' + j.version;
                 if (j.cache !== APP_CACHE) {
                     var now = Date.now();
                     if (now - _lastReload > 30000) {
