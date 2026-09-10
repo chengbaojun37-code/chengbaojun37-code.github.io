@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260910d'; // v3.12.31：修复版本自检无限刷新循环（改按版本号比较 + 刷新熔断 + 数据未就绪不刷新）
+const CACHE = 'wms-cache-v20260910e'; // v3.12.32：多源兜底新增同域 Pages 源（最稳）+ 顶部显眼横幅自动恢复云端数据
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './zxing-browser.min.js'];
 
 self.addEventListener('install', function(e) {
