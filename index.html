@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.37</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.38</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1071,6 +1071,69 @@ function formatQty(n) {
     if (!isFinite(v)) v = 0;
     var r = Math.round(v * 10) / 10;
     return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+// ========== v3.12.38：全局错误边界（防崩溃第一道防线） ==========
+// 任何未被捕获的同步/异步异常都会被捕获并显示在顶部红色横幅，而不是让页面"假死无反应"。
+// 这样即使未来某处又抛 ReferenceError / TypeError，用户也能立刻看到错误、页面其余功能仍可用，
+// 且能把横幅文字发给我精确定位 —— 彻底杜绝"系统没反应却不知为何"的现象。
+function _showFatalBanner(msg) {
+    try {
+        if (typeof document === 'undefined' || !document) return;
+        var id = 'wms-error-guard';
+        var el = document.getElementById(id);
+        if (!el) {
+            el = document.createElement('div');
+            el.id = id;
+            el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#c0392b;color:#fff;' +
+                'font-size:13px;line-height:1.5;padding:8px 12px;box-shadow:0 2px 8px rgba(0,0,0,.3);' +
+                'max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-word;';
+            (document.body || document.documentElement).appendChild(el);
+        }
+        var ts = new Date().toLocaleTimeString();
+        el.textContent = '⚠️ 系统运行提示(' + ts + ')：' + msg + '\n如需协助，请把这段文字截图发给我。';
+    } catch (_e) { /* 错误边界自身绝不能抛错 */ }
+}
+function _installErrorGuard() {
+    try {
+        window.addEventListener('error', function(e) {
+            var m = (e && e.message) ? e.message : '未知错误';
+            if (e && e.filename) m += ' @ ' + String(e.filename).split('/').pop() + ':' + (e.lineno || '?');
+            _showFatalBanner('JS错误: ' + m);
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+            var r = e && e.reason;
+            var m = (r && r.message) ? r.message : (typeof r === 'string' ? r : '未处理的 Promise 拒绝');
+            _showFatalBanner('异步错误: ' + m);
+        });
+    } catch (_e) {}
+}
+_installErrorGuard();
+
+// ========== v3.12.38：核心导航绑定独立成函数 ==========
+// 关键：在初始化最前调用，独立于任何数据恢复 / 渲染逻辑。
+// 即使下面的 refreshAll 或某段渲染抛错，导航(tab / 语言切换)也已就绪 —— 页面永远不会"点不动"。
+// 这是根除"按钮失灵"类崩溃的治本措施（历史：v3.12.37 的 formatQty 未定义曾导致 tab 全部漏绑）。
+function bindNavigation() {
+    document.querySelectorAll('.lang-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() { try { switchLanguage(btn.dataset.lang); } catch (e) { _showFatalBanner('切换语言失败: ' + e.message); } });
+    });
+    document.querySelectorAll('.tab').forEach(function(tab) {
+        tab.addEventListener('click', function() {
+            var target = this.dataset.tab;
+            if (!target) return;
+            document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+            document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+            this.classList.add('active');
+            var pageEl = document.getElementById('page-' + target);
+            if (pageEl) pageEl.classList.add('active');
+            try {
+                if (target === 'summary') renderSummary();
+                if (target === 'log') renderLog();
+                if (target === 'month-outbound' || target === 'quarter-outbound' || target === 'year-outbound') renderPeriodOutbound();
+            } catch (e) { _showFatalBanner('渲染页面失败(' + target + '): ' + e.message); }
+        });
+    });
 }
 
 // ========== 同步后端：GitHub 仓库 Contents API（替代已失效的 Gist 写权限） ==========
@@ -4482,6 +4545,9 @@ function normalizeAllOutboundDepartments() {
 document.addEventListener('DOMContentLoaded', function() {
     // 启动阶段禁止 saveToGist 上传，避免本地旧数据污染 Gist
     _gistLoading = true;
+    // v3.12.38：最先绑定核心导航(tab / 语言切换)，独立于后续任何数据恢复或渲染逻辑。
+    // 即使下面的 localStorage 恢复 / refreshAll 抛错，导航也已就绪 —— 页面永远不会"点不动"。
+    try { bindNavigation(); } catch (_navErr) { _showFatalBanner('导航绑定失败: ' + (_navErr && _navErr.message)); }
     // v3.12.33：先尝试用 EMBEDDED_FALLBACK 覆盖被污染的 localStorage
     // 场景：用户浏览器 localStorage 里有一份"空 inventory" + 高 dataVersion → loadAllData 返回 false → 系统显示 0
     // 兜底：检测到 localStorage 为空或全空数据，立即用页面内嵌的云端快照覆盖（保证有数据可显示）
@@ -4523,8 +4589,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     } catch (_eEmb) { console.warn('[v3.12.33] EMBEDDED_FALLBACK 应用失败：', _eEmb); }
 
-    const loaded = loadAllData();
-    if (!loaded) initSampleData();
+    try {
+        const loaded = loadAllData();
+        if (!loaded) initSampleData();
+    } catch (e) { _showFatalBanner('加载本地数据失败: ' + (e && e.message)); }
     // v3.12.34 终极兜底：无论 loadAllData 结果如何，inventory 仍为 0 时强制用 EMBEDDED_FALLBACK 覆盖
     // 这一步绕过所有 localStorage 污染 / 版本守卫 / sync 失败的拦截，确保用户看到真实数据
     try {
@@ -4632,9 +4700,10 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(function() { window._wmsDataReady = true; }, 15000);
     window.addEventListener('online', trySyncPending);
     // 从全部入库记录恢复累计入库
-    restoreDateInbound(null, null, null);
-    syncUnitBilingual();
-    refreshAll();
+    try { restoreDateInbound(null, null, null); } catch (e) { _showFatalBanner('恢复累计入库失败: ' + (e && e.message)); }
+    try { syncUnitBilingual(); } catch (e) { _showFatalBanner('双语同步失败: ' + (e && e.message)); }
+    // v3.12.38：首次渲染整体容错 —— 任一渲染抛错都不再中断后面的事件绑定与初始化
+    try { refreshAll(); } catch (e) { _showFatalBanner('首次渲染失败: ' + (e && e.message)); }
 
     currentUser = localStorage.getItem('warehouse-user') || '';
     updateUserDisplay();
@@ -4668,22 +4737,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    document.querySelectorAll('.lang-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() { switchLanguage(btn.dataset.lang); });
-    });
-
-    document.querySelectorAll('.tab').forEach(function(tab) {
-        tab.addEventListener('click', function() {
-            const target = this.dataset.tab;
-            document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-            document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
-            this.classList.add('active');
-            document.getElementById('page-'+target).classList.add('active');
-            if (target === 'summary') renderSummary();
-            if (target === 'log') renderLog();
-            if (target === 'month-outbound' || target === 'quarter-outbound' || target === 'year-outbound') renderPeriodOutbound();
-        });
-    });
+    // v3.12.38：导航(tab / 语言切换)已在 bindNavigation() 中于初始化最前统一绑定，此处不再重复。
 
     // 库存总览搜索
     document.getElementById('inventory-search-input').addEventListener('input', function() {
@@ -5840,6 +5894,15 @@ function forceUploadLocalToCloud() {
     if (_gistLoading) { showAlert('warning', currentLang === 'zh' ? '正在同步中，请稍后再试' : 'Синхронизация выполняется, попробуйте позже', 'summary'); return; }
     var localRaw = localStorage.getItem('warehouse-data-new') || localStorage.getItem('warehouse-data');
     if (!localRaw) { showAlert('danger', currentLang === 'zh' ? '本地没有可覆盖的数据' : 'Нет локальных данных для перезаписи', 'summary'); return; }
+    // v3.12.38：数据零丢失保护 —— 「以本地为准」会把云端整体覆盖为本地。
+    // 若本地库存为空而云端可能非空，强制覆盖会抹掉全部云端数据，故禁止。
+    try {
+        var _fuObj = _safeParse(localRaw);
+        if (!_fuObj || !Array.isArray(_fuObj.inventory) || _fuObj.inventory.length === 0) {
+            showAlert('danger', currentLang === 'zh' ? '本地数据为空，已禁止覆盖云端（否则会丢失所有数据）。请先通过「恢复备份」或重新从云端同步。' : 'Локальные данные пусты — перезапись облака запрещена (это приведёт к потере всех данных). Сначала восстановите из облака.', 'summary');
+            return;
+        }
+    } catch (_fe) {}
     _gistLoading = true;
     updateSyncStatus('syncing');
     var _apiBase = 'https://api.github.com/repos/' + SYNC_REPO + '/contents/' + SYNC_FILE;
@@ -7224,8 +7287,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.37';
-var APP_CACHE = 'wms-cache-v20260910i';
+var APP_VERSION = '3.12.38';
+var APP_CACHE = 'wms-cache-v20260910j';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
