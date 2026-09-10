@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260910b'; // v3.12.29：库存数据为空时显示诊断横幅+强制重试按钮；loadAllData 不再因 presetVersion 不匹配丢库存
+const CACHE = 'wms-cache-v20260910c'; // v3.12.30：云端拉取多源兜底（api→raw→jsdelivr→statically），诊断横幅新增「粘贴 JSON 恢复」按钮
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './zxing-browser.min.js'];
 
 self.addEventListener('install', function(e) {

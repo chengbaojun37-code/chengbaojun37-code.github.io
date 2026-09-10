@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.29</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.30</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1627,7 +1627,15 @@ function renderInventory() {
             '<button type="button" id="btn-diag-reloud-cloud" style="padding:6px 14px;background:#e67e22;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">☁️ 强制从云端拉取</button>' +
             '<button type="button" id="btn-diag-full-reload" style="padding:6px 14px;background:#3498db;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">🔄 刷新页面（硬刷新）</button>' +
             '<button type="button" id="btn-diag-show-detail" style="padding:6px 14px;background:#fff;color:#7a4f00;border:1px solid #f5b342;border-radius:4px;cursor:pointer;font-size:13px;">📋 查看诊断详情</button>' +
+            '<button type="button" id="btn-diag-paste-json" style="padding:6px 14px;background:#27ae60;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">📥 粘贴 JSON 恢复</button>' +
             '</div>' +
+            '<div id="diag-paste-area" style="display:none;margin-top:10px;">' +
+            '<textarea id="diag-paste-input" placeholder="从浏览器开发者工具 Network 里把 wms-sync-data.json 的 Response 整段粘到这里，或粘 https://api.github.com/.../contents/wms-sync-data.json 返回的 content 字段（base64）" style="width:100%;height:120px;font-size:12px;font-family:monospace;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;"></textarea>' +
+            '<div style="margin-top:6px;display:flex;gap:8px;">' +
+            '<button type="button" id="btn-diag-paste-go" style="padding:6px 14px;background:#27ae60;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">✅ 应用并恢复</button>' +
+            '<button type="button" id="btn-diag-paste-cancel" style="padding:6px 14px;background:#fff;color:#7a4f00;border:1px solid #f5b342;border-radius:4px;cursor:pointer;font-size:13px;">取消</button>' +
+            '<span id="diag-paste-msg" style="font-size:12px;color:#c0392b;align-self:center;"></span>' +
+            '</div></div>' +
             '<pre id="diag-detail" style="display:none;margin-top:10px;padding:10px;background:#f9f9f9;border:1px dashed #ccc;border-radius:4px;font-size:12px;color:#333;white-space:pre-wrap;word-end:break-all;"></pre>';
         _diag.innerHTML = _diagHtml;
         grid.appendChild(_diag);
@@ -1645,7 +1653,8 @@ function renderInventory() {
                     'SYNC_FILE: ' + SYNC_FILE + '\n' +
                     'currentFilter: ' + currentFilter + '\n' +
                     'overviewSourceFilter: ' + overviewSourceFilter + '\n' +
-                    'overviewSubTab: ' + overviewSubTab;
+                    'overviewSubTab: ' + overviewSubTab + '\n' +
+                    '_lastFetchSource: ' + (_lastFetchSource || '(未尝试)');
             } else { _pre.style.display = 'none'; }
         };
         var _reloudCloud = function() {
@@ -1657,13 +1666,69 @@ function renderInventory() {
             }).catch(function() { if (_btn) { _btn.disabled = false; _btn.textContent = '☁️ 拉取失败，重试'; } });
         };
         var _fullReload = function() { window.location.reload(); };
+        var _togglePaste = function() {
+            var _a = document.getElementById('diag-paste-area');
+            if (!_a) return;
+            _a.style.display = (_a.style.display === 'none') ? 'block' : 'none';
+        };
+        var _doPaste = function() {
+            var _msg = document.getElementById('diag-paste-msg');
+            var _t = document.getElementById('diag-paste-input');
+            if (!_t) return;
+            var raw = (_t.value || '').trim();
+            if (!raw) { if (_msg) _msg.textContent = '请先粘贴内容'; return; }
+            var inner = null;
+            // 尝试1：直接 JSON.parse
+            try { inner = JSON.parse(raw); } catch(e) {}
+            // 尝试2：base64 解码（GitHub Contents API content 字段）
+            if (!inner) {
+                try {
+                    var dec = atob(raw.replace(/\s/g, ''));
+                    inner = JSON.parse(dec);
+                } catch(e) {}
+            }
+            // 尝试3：抽取 {"content":"..."} 中的 content 字段
+            if (!inner) {
+                try {
+                    var m = raw.match(/"content"\s*:\s*"([A-Za-z0-9+/=\s]+)"/);
+                    if (m) { inner = JSON.parse(atob(m[1].replace(/\s/g, ''))); }
+                } catch(e) {}
+            }
+            if (!inner) { if (_msg) _msg.textContent = '解析失败：不是有效 JSON，也不是 base64'; return; }
+            // 规范化：若 inner 是 {'warehouse-data-new': '{...}'}，展开内层
+            var data = null;
+            if (inner.inventory && Array.isArray(inner.inventory)) data = inner;
+            else {
+                var wd = inner['warehouse-data'] || inner['warehouse-data-new'];
+                if (wd) {
+                    try { data = (typeof wd === 'string') ? JSON.parse(wd) : wd; } catch(e) {}
+                }
+            }
+            if (!data || !data.inventory) { if (_msg) _msg.textContent = '内容不含 inventory 字段'; return; }
+            // 升级 presetVersion 后写入 localStorage
+            data.presetVersion = PRESET_VERSION;
+            if (!data.dataVersion) data.dataVersion = (Date.now());
+            try {
+                localStorage.setItem('warehouse-data', JSON.stringify(data));
+                localStorage.setItem('warehouse-data-new', JSON.stringify(data));
+                if (_msg) { _msg.style.color = '#27ae60'; _msg.textContent = '已恢复 ' + data.inventory.length + ' 项物料，3 秒后刷新'; }
+                setTimeout(function(){ window.location.reload(); }, 3000);
+            } catch(e) { if (_msg) _msg.textContent = '写入失败：' + (e.message || e); }
+        };
+        var _cancelPaste = function() { var _a = document.getElementById('diag-paste-area'); if (_a) _a.style.display = 'none'; };
         setTimeout(function() {
             var _b1 = document.getElementById('btn-diag-reloud-cloud');
             var _b2 = document.getElementById('btn-diag-full-reload');
             var _b3 = document.getElementById('btn-diag-show-detail');
+            var _b4 = document.getElementById('btn-diag-paste-json');
+            var _b5 = document.getElementById('btn-diag-paste-go');
+            var _b6 = document.getElementById('btn-diag-paste-cancel');
             if (_b1) _b1.onclick = _reloudCloud;
             if (_b2) _b2.onclick = _fullReload;
             if (_b3) _b3.onclick = _showDetail;
+            if (_b4) _b4.onclick = _togglePaste;
+            if (_b5) _b5.onclick = _doPaste;
+            if (_b6) _b6.onclick = _cancelPaste;
         }, 0);
     }
     let filtered = inventory.filter(function(item) {
@@ -5767,10 +5832,59 @@ function _fetchCloudDataObj() {
     }).catch(function () { return null; });
 }
 
+// v3.12.30：多源兜底拉取。优先级：Contents API（最权威，可匿名读公开仓库）
+//   → raw.githubusercontent.com（CDN 加速，偶发返回空，备用）
+//   → jsdelivr CDN 镜像（git 仓库直接 serve raw，最稳定的第三方镜像）
+// 任一源拉到数据即返回，且记录到 _lastFetchSource 供诊断用。失败返回 null。
+var _lastFetchSource = '';
+function _fetchCloudDataObjMulti() {
+    var branch = SYNC_BRANCH;
+    var repo = SYNC_REPO;
+    var file = SYNC_FILE;
+    var sources = [
+        { name: 'api.github.com', type: 'api',
+          url: 'https://api.github.com/repos/' + repo + '/contents/' + file + '?ref=' + branch + '&_=' + Date.now(),
+          auth: true },
+        { name: 'raw.githubusercontent.com', type: 'raw',
+          url: 'https://raw.githubusercontent.com/' + repo + '/' + branch + '/' + file + '?_=' + Date.now(),
+          auth: false },
+        { name: 'jsdelivr', type: 'raw',
+          url: 'https://cdn.jsdelivr.net/gh/' + repo + '@' + branch + '/' + file + '?_=' + Date.now(),
+          auth: false },
+        { name: 'statically', type: 'raw',
+          url: 'https://cdn.statically.io/gh/' + repo + '/' + branch + '/' + file + '?_=' + Date.now(),
+          auth: false }
+    ];
+    function trySource(idx) {
+        if (idx >= sources.length) return Promise.resolve(null);
+        var s = sources[idx];
+        var headers = { 'Accept': s.type === 'api' ? 'application/vnd.github+json' : 'application/json' };
+        if (s.auth) headers['Authorization'] = 'token ' + SYNC_TOKEN;
+        return fetch(s.url, { headers: headers })
+            .then(function(res) {
+                if (!res.ok) return null;
+                if (s.type === 'api') return res.json().then(function(f){ return _decodeCloudFileObj(f); });
+                return res.text().then(function(t){
+                    try { return JSON.parse(t); } catch(e) { return null; }
+                });
+            })
+            .then(function(data) {
+                if (data && (data.inventory || data['warehouse-data'] || data['warehouse-data-new'])) {
+                    _lastFetchSource = s.name;
+                    return data;
+                }
+                return trySource(idx + 1);
+            })
+            .catch(function() { return trySource(idx + 1); });
+    }
+    return trySource(0);
+}
+
 function loadFromGist() {
     // v3.7c：读取改用 Contents API（api.github.com 不走 CDN 缓存）。
     // 之前用 raw.githubusercontent.com 读取，其 CDN(Fastly) 对查询参数不敏感，
     // 「?_=时间戳」无法破坏缓存 → 各端读到几分钟前的旧数据 → 本地为空的端合并出 0 → 回写覆盖其他端的新数据（1↔0 震荡）。
+    // v3.12.30：多源兜底——若 Contents API 拉取失败（用户网络/CORS/限流），自动回退到 raw.githubusercontent.com 或 jsdelivr/statically CDN。
     var apiUrl = 'https://api.github.com/repos/' + SYNC_REPO + '/contents/' + SYNC_FILE + '?ref=' + SYNC_BRANCH;
     // 获取本地 dataVersion，用于版本比较
     var localVersion = 0;
@@ -5778,18 +5892,7 @@ function loadFromGist() {
     if (localRaw) {
         try { var localData = JSON.parse(localRaw); localVersion = localData.dataVersion || 0; } catch(e) {}
     }
-    return fetch(apiUrl + '&_=' + Date.now(), {
-            headers: { 'Authorization': 'token ' + SYNC_TOKEN, 'Accept': 'application/vnd.github+json' }
-        })
-        .then(function(res) {
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            return res.json();
-        })
-        .then(function (fileObj) {
-            // v3.9：超过 1MB 的文件 content 为空，_decodeCloudFileObj 会自动走 Blobs API 兜底
-            return _decodeCloudFileObj(fileObj);
-        })
-        .then(function (data) {
+    return _fetchCloudDataObjMulti().then(function (data) {
             if (!data) {
                 updateSyncStatus('failed');
                 return false;
