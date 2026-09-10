@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.27</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.28</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1651,9 +1651,9 @@ function renderInventory() {
             '<div class="card-body">'+
                 '<div class="info-row"><span class="info-label">'+t.labelName+'</span><span class="info-value">'+hl(item.name)+'</span></div>'+
                 '<div class="info-row"><span class="info-label">'+t.labelSpec+'</span><span class="info-value">'+hl(item.spec)+'</span></div>'+
-                '<div class="info-row"><span class="info-label">'+t.labelStock+'</span><span class="info-value">'+item.stock+' '+t.unit+'</span></div>'+
+                '<div class="info-row"><span class="info-label">'+t.labelStock+'</span><span class="info-value">'+formatQty(item.stock)+' '+t.unit+'</span></div>'+
                 '<div class="info-row"><span class="info-label">'+t.labelTotalPrice+'</span><span class="info-value">'+(item.unitPrice != null && !isNaN(item.unitPrice) ? (Math.round(item.unitPrice * item.stock * 100) / 100) + ' ₽' : '-')+'</span></div>'+
-                '<div class="info-row"><span class="info-label">'+t.labelSafeStock+'</span><span class="info-value safe-stock-val" data-code="'+item.code+'">'+item.safeStock+' '+t.unit+'</span>' + (isAdmin ? '<span class="safe-stock-edit-icon" data-code="'+item.code+'" title="'+t.safeStockEditTitle+'">&#9998;</span>' : '') + '</div>'+
+                '<div class="info-row"><span class="info-label">'+t.labelSafeStock+'</span><span class="info-value safe-stock-val" data-code="'+item.code+'">'+formatQty(item.safeStock)+' '+t.unit+'</span>' + (isAdmin ? '<span class="safe-stock-edit-icon" data-code="'+item.code+'" title="'+t.safeStockEditTitle+'">&#9998;</span>' : '') + '</div>'+
                 '<div class="info-row"><span class="info-label">'+t.labelSupplier+'</span><span class="info-value">'+item.supplier+'</span></div>'+
                 '<div class="info-row"><span class="info-label">'+t.labelExpireDate+'</span><span class="info-value">'+(item.expireDate || '-')+'</span></div>'+
                 '<div class="info-row"><span class="info-label">'+t['status'+es.charAt(0).toUpperCase()+es.slice(1)]+'</span><span class="status-badge status-'+es+'">'+t['status'+es.charAt(0).toUpperCase()+es.slice(1)]+'</span></div>'+
@@ -1739,8 +1739,8 @@ function renderSummary() {
             '<td class="td-editable td-spec" data-code="'+item.code+'">'+item.spec+'</td>'+
             '<td class="td-editable td-source" data-code="'+item.code+'">'+getSourceLabel(item.source)+'</td>'+
             '<td class="td-editable td-unit" data-code="'+item.code+'">'+(item.unit || t.unit)+'</td>'+
-            '<td class="td-safe-stock" data-code="'+item.code+'">'+item.safeStock+'</td><td class="td-init-stock" data-code="'+item.code+'">'+init+'</td><td>'+cumIn+'</td><td>'+cumOut+'</td>'+
-            '<td class="'+stockCellClass+'">'+item.stock+'</td>'+
+            '<td class="td-safe-stock" data-code="'+item.code+'">'+formatQty(item.safeStock)+'</td><td class="td-init-stock" data-code="'+item.code+'">'+formatQty(init)+'</td><td>'+formatQty(cumIn)+'</td><td>'+formatQty(cumOut)+'</td>'+
+            '<td class="'+stockCellClass+'">'+formatQty(item.stock)+'</td>'+
             '<td class="td-editable td-unitprice" data-code="'+item.code+'">'+(unitPrice ? unitPrice : '-')+'</td>'+
             '<td class="td-totalprice">'+(unitPrice ? totalPrice : '-')+'</td>'+
             '<td class="'+stockCellClass+'">'+t['status'+ss.charAt(0).toUpperCase()+ss.slice(1)]+'</td>'+
@@ -1755,9 +1755,9 @@ function renderSummary() {
     tfoot.innerHTML = '<tr>'+
         '<td colspan="2"><strong>'+t.totalText+'</strong></td>'+
         '<td colspan="4"></td>'+
-        '<td><strong>'+totals.safeStock+'</strong></td><td><strong>'+totals.initialStock+'</strong></td>'+
-        '<td><strong>'+totals.cumIn+'</strong></td><td><strong>'+totals.cumOut+'</strong></td>'+
-        '<td><strong>'+totals.stock+'</strong></td><td></td>'+
+        '<td><strong>'+formatQty(totals.safeStock)+'</strong></td><td><strong>'+formatQty(totals.initialStock)+'</strong></td>'+
+        '<td><strong>'+formatQty(totals.cumIn)+'</strong></td><td><strong>'+formatQty(totals.cumOut)+'</strong></td>'+
+        '<td><strong>'+formatQty(totals.stock)+'</strong></td><td></td>'+
         '<td><strong>'+Math.round(totals.totalPrice*100)/100+'</strong></td><td colspan="6"></td></tr>';
     document.getElementById('summary-count').textContent = (currentLang==='zh'?'显示 ':'Показано ') + data.length + (currentLang==='zh'?' 条':' зап.');
 }
@@ -1939,8 +1939,11 @@ function renderLog() {
 
     tbody.innerHTML = '';
     logs.forEach(function(log) {
+        // v3.12.28：qtyChange 带符号（+20 / -15.5），保留符号只格式化数字部分
+        var _qc = String(log.qtyChange);
+        var _qcdisp = _qc.replace(/^([-+]?)([\d.]+)$/, function(_, sign, num) { return sign + formatQty(num); });
         const tr = document.createElement('tr');
-        tr.innerHTML = '<td>'+log.time+'</td><td>'+log.user+'</td><td>'+log.type+'</td><td>'+log.code+'</td><td>'+log.qtyChange+'</td><td>'+log.note+'</td>' +
+        tr.innerHTML = '<td>'+log.time+'</td><td>'+log.user+'</td><td>'+log.type+'</td><td>'+log.code+'</td><td>'+_qcdisp+'</td><td>'+log.note+'</td>' +
             (isAdmin ? '<td><button class="btn-delete-row admin-only" onclick="deleteLogEntry('+log._origIdx+')">✕</button></td>' : '<td></td>');
         tbody.appendChild(tr);
     });
@@ -2138,7 +2141,7 @@ function renderHistoryTables() {
                       '<button type="button" onclick="deleteInboundRecord(' + _idx + ')" style="padding:3px 10px;font-size:12px;border:1px solid #d9534f;background:#d9534f;color:#fff;border-radius:4px;cursor:pointer;">' + t.btnHistDelete + '</button>';
         }
         const tr = document.createElement('tr');
-        tr.innerHTML = '<td>'+record.date+'</td><td>'+record.code+'</td><td>'+(record.barcode||'-')+'</td><td>'+imgHtml+'</td><td>'+record.name+'</td><td>'+record.quantity+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+record.supplier+'</td><td>'+(record.personnel||'-')+'</td><td>'+record.operator+'</td><td style="white-space:nowrap;">'+actHtml+'</td>';
+        tr.innerHTML = '<td>'+record.date+'</td><td>'+record.code+'</td><td>'+(record.barcode||'-')+'</td><td>'+imgHtml+'</td><td>'+record.name+'</td><td>'+formatQty(record.quantity)+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+record.supplier+'</td><td>'+(record.personnel||'-')+'</td><td>'+record.operator+'</td><td style="white-space:nowrap;">'+actHtml+'</td>';
         inboundBody.appendChild(tr);
     });
     const outboundContainer = document.getElementById('outbound-history-container');
@@ -2199,7 +2202,7 @@ function renderHistoryTables() {
                 }
                 var tr = document.createElement('tr');
                 tr.innerHTML = '<td>'+record.date+'</td><td>'+record.code+'</td><td>'+record.name+'</td>' +
-                    '<td>'+record.quantity+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+normalizeDepartment(record.department||'-')+'</td><td>'+record.operator+'</td>' +
+                    '<td>'+formatQty(record.quantity)+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+normalizeDepartment(record.department||'-')+'</td><td>'+record.operator+'</td>' +
                     (isAdmin ? '<td style="white-space:nowrap;">'+actHtml+'</td>' : '');
                 tbody.appendChild(tr);
                 _deptQty += (Number(record.quantity) || 0);
@@ -2208,7 +2211,7 @@ function renderHistoryTables() {
             var sumTr = document.createElement('tr');
             sumTr.style.cssText = 'background:#fafbff;font-weight:600;color:#2c5f8a;';
             sumTr.innerHTML = '<td colspan="3" style="text-align:right;">' + (currentLang === 'zh' ? '本部门小计' : 'Итого по отделу') + '：</td>' +
-                '<td>' + _deptQty + '</td><td colspan="' + (isAdmin ? '4' : '3') + '">' + deptGroups[dept].length + ' ' + (currentLang === 'zh' ? '笔' : 'зап.') + '</td>';
+                '<td>' + formatQty(_deptQty) + '</td><td colspan="' + (isAdmin ? '4' : '3') + '">' + deptGroups[dept].length + ' ' + (currentLang === 'zh' ? '笔' : 'зап.') + '</td>';
             tbody.appendChild(sumTr);
             sectionDiv.appendChild(table);
             outboundContainer.appendChild(sectionDiv);
@@ -2224,8 +2227,8 @@ function renderHistoryTables() {
         var _unit = (_matched[0] ? (unitMap[_matched[0].r.code] || '') : '');
         totalDiv.textContent = _scopeLabel + ' · ' +
             (currentLang === 'zh'
-                ? '共 ' + deptNames.length + ' 个部门，' + _grandCount + ' 笔领取，合计 ' + _grandTotal + ' ' + _unit
-                : deptNames.length + ' отд., ' + _grandCount + ' зап., итого ' + _grandTotal + ' ' + _unit);
+                ? '共 ' + deptNames.length + ' 个部门，' + _grandCount + ' 笔领取，合计 ' + formatQty(_grandTotal) + ' ' + _unit
+                : deptNames.length + ' отд., ' + _grandCount + ' зап., итого ' + formatQty(_grandTotal) + ' ' + _unit);
         outboundContainer.appendChild(totalDiv);
     }
 }
@@ -2397,7 +2400,7 @@ function renderPeriodOutbound() {
                     '<td>' + a.name + '</td>' +
                     '<td>' + a.spec + '</td>' +
                     '<td>' + a.unit + '</td>' +
-                    '<td>' + a.qty + '</td>' +
+                    '<td>' + formatQty(a.qty) + '</td>' +
                     '<td>' + noteStr + '</td>';
                 tbody.appendChild(tr);
             });
@@ -3935,7 +3938,7 @@ function startSafeStockCardEdit(iconEl) {
             if (!ok) { input.value = oldVal; }
         }
         var updatedItem = inventory.find(function(i){return i.code===code;});
-        var displayVal = (save && updatedItem) ? updatedItem.safeStock : oldVal;
+        var displayVal = (save && updatedItem) ? formatQty(updatedItem.safeStock) : oldVal;
         const newSpan = document.createElement('span');
         newSpan.className = 'info-value safe-stock-val';
         newSpan.dataset.code = code;
@@ -3972,7 +3975,7 @@ function startSafeStockSummaryEdit(td) {
         isEditing = false;
         if (save) { editSafeStockItem(code, input.value); }
         td.classList.remove('editing');
-        td.textContent = save ? inventory.find(function(i){return i.code===code;}).safeStock : oldVal;
+        td.textContent = save ? formatQty(inventory.find(function(i){return i.code===code;}).safeStock) : oldVal;
         renderSummary();
     }
 
@@ -4003,7 +4006,7 @@ function startInitStockSummaryEdit(td) {
         isEditing = false;
         if (save) { editInitStockItem(code, input.value); }
         td.classList.remove('editing');
-        td.textContent = save ? inventory.find(function(i){return i.code===code;}).initialStock : oldVal;
+        td.textContent = save ? formatQty(inventory.find(function(i){return i.code===code;}).initialStock) : oldVal;
         renderSummary();
     }
     input.addEventListener('keydown', function(e) {
@@ -4652,6 +4655,17 @@ document.addEventListener('DOMContentLoaded', function() {
         var div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    }
+
+    // v3.12.28：数量统一格式化函数——放在 escapeHTML 后以便后续用（实际为顶层 script 函数，
+    // 4 空格缩进仅为视觉对齐，renderInventory / renderSummary / renderHistoryTables 等顶层函数均可调用）。
+    // 规则：先四舍五入到 1 位小数消除浮点尾数（如 258.70000000000005 → 258.7，170.299999... → 170.3），
+    //      整数不带 .0（20 → "20"），带小数保留 1 位（121.5 → "121.5"）。
+    function formatQty(n) {
+        var v = (typeof n === 'number') ? n : parseFloat(n);
+        if (!isFinite(v)) v = 0;
+        var r = Math.round(v * 10) / 10;
+        return Number.isInteger(r) ? String(r) : r.toFixed(1);
     }
 
     // 入库 - 实时匹配 + 采购地自动填入
