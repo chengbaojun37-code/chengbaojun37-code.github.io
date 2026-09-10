@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260910i'; // v3.12.37：修复 formatQty 未全局定义导致 refreshAll 抛错、tab 无法绑定的根因
+const CACHE = 'wms-cache-v20260910j'; // v3.12.38：全局错误边界 + 导航独立绑定 + forceUpload 空数据保护，防崩溃与数据零丢失
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './zxing-browser.min.js'];
 
 self.addEventListener('install', function(e) {
