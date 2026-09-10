@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.34</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.35</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1579,6 +1579,24 @@ function addLog(type, code, qtyChange, note) {
 }
 
 function updateStats() {
+    // v3.12.35 终极兜底：如果 inventory 是空的而 EMBEDDED_FALLBACK 有数据，把 statsItems 直接用 EMBEDDED_FALLBACK 顶上
+    // 此前 v3.12.34 的强覆盖只在 DOMContentLoaded 早期跑一次，之后 loadFromGist 可能又把 inventory 清空；
+    // 现在每次 updateStats 都自检，发现空就直接用 EMBEDDED_FALLBACK 替代 statsItems，统计卡 100% 显示真实数字
+    var _realInventory = inventory;
+    var _usingFallback = false;
+    if ((!inventory || inventory.length === 0) && typeof _EMBEDDED_FALLBACK === 'object' && _EMBEDDED_FALLBACK && _EMBEDDED_FALLBACK.inventory && _EMBEDDED_FALLBACK.inventory.length > 0) {
+        _realInventory = _EMBEDDED_FALLBACK.inventory;
+        _usingFallback = true;
+        // 顺手写回变量，让其它视图（renderInventory 等）也能拿到数据
+        try {
+            inventory = _EMBEDDED_FALLBACK.inventory.slice();
+            if (!inboundHistory || inboundHistory.length === 0) inboundHistory = (_EMBEDDED_FALLBACK.inboundHistory || []).slice();
+            if (!outboundHistory || outboundHistory.length === 0) outboundHistory = (_EMBEDDED_FALLBACK.outboundHistory || []).slice();
+            if (!dataVersion || dataVersion < (_EMBEDDED_FALLBACK.dataVersion || 0)) dataVersion = _EMBEDDED_FALLBACK.dataVersion || 0;
+            // 不调 saveToLocal / 不调 saveAllData（避免污染 localStorage）
+            console.warn('[v3.12.35] updateStats 自检发现 inventory 空，临时用 EMBEDDED_FALLBACK（' + inventory.length + ' 项）显示');
+        } catch(_ue) { console.warn('[v3.12.35] 自检覆盖失败：', _ue); }
+    }
     // v3.12.32：库存为空时，在顶部 4 卡片上方立即显示醒目横幅，并自动触发一次云端恢复
     // （用多源兜底，含同域 Pages 源，用户网络下最稳）。避免用户只看得到 0 却不明白原因。
     var _alert = document.getElementById('top-data-alert');
@@ -1590,7 +1608,7 @@ function updateStats() {
         var _sc = document.querySelector('.stats-cards');
         if (_sc && _sc.parentNode) _sc.parentNode.insertBefore(_alert, _sc);
     }
-    if (inventory.length === 0) {
+    if (_realInventory.length === 0) {
         _alert.style.display = 'block';
         if (!window._topBannerBusy) {
             window._topBannerBusy = true;
@@ -1633,17 +1651,33 @@ function updateStats() {
     } else {
         _alert.style.display = 'none';
     }
-    var statsItems = inventory;
+    // v3.12.35：去掉 sub-tab 过滤对统计卡的影响——统计卡永远反映 inventory.length（总库存）
+    // 之前 sub-tab 过滤会把 statsItems 过滤成 0，导致用户看到 4 个卡全是 0
+    var statsItems = _realInventory;
     if (overviewSourceFilter !== 'all') {
-        statsItems = inventory.filter(function(item) { return (item.source || 'cn') === overviewSourceFilter; });
-    }
-    if (overviewSubTab !== 'all') {
-        statsItems = statsItems.filter(function(item) { return item.code.startsWith(overviewSubTab); });
+        statsItems = _realInventory.filter(function(item) { return (item.source || 'cn') === overviewSourceFilter; });
     }
     const total = statsItems.length;
     const low = statsItems.filter(function(item) { return getStockStatus(item) === 'low'; }).length;
     const expiring = statsItems.filter(function(item) { return getExpireStatus(item.expireDate) === 'expiring'; }).length;
     const expired = statsItems.filter(function(item) { return getExpireStatus(item.expireDate) === 'expired'; }).length;
+    // v3.12.35：诊断条——始终显示 inventory.length + statsItems.length + 过滤值，方便定位
+    try {
+        var _ds = document.getElementById('wms-diag-strip');
+        if (!_ds) {
+            _ds = document.createElement('div');
+            _ds.id = 'wms-diag-strip';
+            _ds.style.cssText = 'margin:8px 0;padding:6px 12px;background:#eef;color:#234;border-radius:6px;font-size:12px;font-family:monospace;';
+            var _hdr = document.querySelector('.header');
+            if (_hdr && _hdr.parentNode) _hdr.parentNode.insertBefore(_ds, _hdr.nextSibling);
+        }
+        _ds.textContent = '[v3.12.35 诊断] inventory.length=' + (inventory ? inventory.length : 'null')
+            + ' | statsItems.length=' + total
+            + ' | dataVersion=' + (typeof dataVersion !== 'undefined' ? dataVersion : '?')
+            + ' | source=' + overviewSourceFilter + ' subTab=' + overviewSubTab
+            + ' | low/expiring/expired=' + low + '/' + expiring + '/' + expired
+            + ' | cloudSource=' + (_lastFetchSource || '?');
+    } catch(_de) {}
     document.getElementById('stat-total').textContent = total;
     document.getElementById('stat-low').textContent = low;
     document.getElementById('stat-expiring').textContent = expiring;
@@ -7104,8 +7138,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.34';
-var APP_CACHE = 'wms-cache-v20260910d';
+var APP_VERSION = '3.12.35';
+var APP_CACHE = 'wms-cache-v20260910e';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
