@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.30</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.31</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -4371,7 +4371,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // v3.12.24：手机端(PWA 切后台会杀掉上传定时器)——打开瞬间就把本地尚未上传的数据推到云端，
         // 直接解决「录入后返回登录，数据消失」：数据一旦落盘，下次打开必定补齐上传
         try { _flushSyncNow(); } catch (e) {}
+        // v3.12.31：标记首次数据加载已完成，此后版本自检才允许自动刷新页面
+        window._wmsDataReady = true;
     });
+    // v3.12.31：兜底——即使云端拉取卡住/失败，15 秒后也放开自动刷新许可，避免永久锁死
+    setTimeout(function() { window._wmsDataReady = true; }, 15000);
     window.addEventListener('online', trySyncPending);
     // 从全部入库记录恢复累计入库
     restoreDateInbound(null, null, null);
@@ -6954,12 +6958,33 @@ document.addEventListener('focusout', function(e) {
 // 背景：PWA 从后台恢复 / 长开的浏览器标签页不会重新导航，即使线上与 SW 都已是新版，
 // 内存里跑的仍是旧 JS——旧版缺表单清理逻辑等问题会一直存在，用户必须手动刷新。
 // SW 的 controllerchange 自动刷新只在"新 SW 恰好在页面存活期间安装"时触发，
-// 页面驻留跨越多次部署时永远错过。此处定期比对线上 sw.js 的 CACHE 版本与内嵌期望值，
-// 不一致时：表单空闲 → 直接刷新；正在填写 → 顶部横幅提示，用户点击后刷新。
+// 页面驻留跨越多次部署时永远错过。此处定期比对线上 version.json 的版本号与页面自带版本号，
+// 线上【更新】时：表单空闲且数据已就绪 → 直接刷新；否则 → 顶部横幅提示，用户点击后刷新。
+// v3.12.31：本页面代码自身的版本号 & 期望的 SW 缓存名（发版只需改这两行 + sw.js 的 CACHE）
+// ⚠ 事故复盘：之前 appUpdateGuard 拿页面内写死的 APP_CACHE 与线上 sw.js 的 CACHE 做【字符串相等】比较。
+// 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
+// loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
+// 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
+var APP_VERSION = '3.12.31';
+var APP_CACHE = 'wms-cache-v20260910d';
+
+// —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
+function _wmsReloadCount() {
+    try { return parseInt(sessionStorage.getItem('wms-reload-count') || '0', 10) || 0; } catch (e) { return 0; }
+}
+function _wmsCanAutoReload() { return _wmsReloadCount() < 2; }
+function _wmsMarkAutoReload() {
+    try { sessionStorage.setItem('wms-reload-count', String(_wmsReloadCount() + 1)); } catch (e) {}
+}
+// 版本号转可比较整数：'3.12.31' → 31231
+function _wmsVerNum(v) {
+    var m = String(v || '').match(/(\d+)\.(\d+)\.(\d+)/);
+    return m ? (parseInt(m[1], 10) * 10000 + parseInt(m[2], 10) * 100 + parseInt(m[3], 10)) : -1;
+}
+// 首次数据加载完成前一律不刷新，避免打断正在进行的云端拉取
+function _wmsDataReady() { return window._wmsDataReady === true; }
+
 (function appUpdateGuard() {
-    // 与 sw.js 的 const CACHE 保持同步（每次发版两处一起改）
-    var APP_CACHE = 'wms-cache-v20260829c';
-    var _checkedOnce = false;
 
     function _formsDirty() {
         var ids = ['outbound-code', 'outbound-quantity', 'outbound-department-custom',
@@ -6969,11 +6994,18 @@ document.addEventListener('focusout', function(e) {
             if (el && String(el.value || '').trim()) return true;
         }
         // 弹窗打开时也视为忙碌
+        // v3.12.31：改用真实可见性判断。之前用 !contains('hidden')，对压根没有 hidden 类的
+        // 弹窗元素恒为 true → "忙碌"永远成立 → 横幅常驻且永不自动升级。
         var overlays = ['outbound-edit-overlay', 'inbound-edit-overlay', 'scan-modal-overlay',
                         'password-modal-overlay', 'insert-modal-overlay', 'dept-modal-overlay'];
         for (var j = 0; j < overlays.length; j++) {
             var ov = document.getElementById(overlays[j]);
-            if (ov && (ov.classList.contains('show') || !ov.classList.contains('hidden'))) return true;
+            if (!ov) continue;
+            if (ov.classList.contains('show') || ov.classList.contains('active')) return true;
+            try {
+                var _st = window.getComputedStyle(ov);
+                if (_st.display !== 'none' && _st.visibility !== 'hidden' && ov.offsetParent !== null) return true;
+            } catch (eOv) {}
         }
         return false;
     }
@@ -6996,21 +7028,19 @@ document.addEventListener('focusout', function(e) {
         // 仅 http(s) 环境（file:// 桌面版 fetch 会失败，静默跳过）
         if (window.location.protocol.indexOf('http') !== 0) return;
         try {
-            // v3.12.22：加时间戳破坏 GitHub Pages CDN 缓存，确保部署后立即检测到新 SW 版本
-            fetch('./sw.js?_=' + Date.now(), { cache: 'no-store' }).then(function(r) {
-                if (!r.ok) return null;
-                return r.text();
-            }).then(function(txt) {
-                if (!txt) return;
-                var m = txt.match(/const CACHE = '([^']+)'/);
-                if (m && m[1] !== APP_CACHE) {
-                    if (_formsDirty()) {
-                        _showUpdateBanner();
-                    } else {
-                        // 空闲状态直接刷新，无感知升级
-                        window.location.reload();
-                    }
+            // v3.12.31：改为读 version.json 并按【版本号大小】判断，不再比对 CACHE 字符串
+            // （字符串比较一旦失配就是无限刷新，见上方事故复盘）
+            fetch('./version.json?_=' + Date.now(), { cache: 'no-store' }).then(function(r) {
+                return r.ok ? r.json() : null;
+            }).then(function(j) {
+                if (!j || !j.version) return;
+                if (_wmsVerNum(j.version) <= _wmsVerNum(APP_VERSION)) return; // 线上不比本页新 → 什么都不做
+                if (_formsDirty() || !_wmsDataReady() || !_wmsCanAutoReload()) {
+                    _showUpdateBanner();
+                    return;
                 }
+                _wmsMarkAutoReload();
+                window.location.reload();
             }).catch(function() {});
         } catch (e) {}
     }
@@ -7037,30 +7067,36 @@ document.addEventListener('focusout', function(e) {
             fetch('./version.json?_=' + Date.now(), { cache: 'no-store' }).then(function(r) {
                 return r.ok ? r.json() : null;
             })            .then(function(j) {
-                if (!j || !j.cache) return;
+                if (!j) return;
                 // v3.12.26：把线上真实版本号写回标题（之前写死 3.12.24，导致升版后显示不变）
                 var _av = document.getElementById('app-version');
                 if (_av && j.version) _av.textContent = 'v' + j.version;
-                if (j.cache !== APP_CACHE) {
-                    var now = Date.now();
-                    if (now - _lastReload > 30000) {
-                        _lastReload = now;
-                        try { _flushSyncNow(); } catch (e) {}
-                        setTimeout(function() { window.location.reload(); }, 600);
-                    }
+                if (!j.version) return;
+                // v3.12.31：改按【版本号】比较。之前比 j.cache 与 APP_CACHE 字符串，
+                // 常量一失配就每次加载都强制刷新（且 _lastReload 随刷新归零，节流形同虚设）→
+                // 每 30 秒刷新一次 → 数据加载永远被打断。这是"物料为 0 / 系统没反应"的直接元凶。
+                if (_wmsVerNum(j.version) <= _wmsVerNum(APP_VERSION)) return;
+                if (!_wmsDataReady() || !_wmsCanAutoReload()) return;
+                var now = Date.now();
+                if (now - _lastReload > 30000) {
+                    _lastReload = now;
+                    try { _flushSyncNow(); } catch (e) {}
+                    _wmsMarkAutoReload();
+                    setTimeout(function() { window.location.reload(); }, 600);
                 }
             }).catch(function() {});
         } catch (e) {}
     }
     setInterval(_checkVer, 60000);
-    _checkVer();
+    // v3.12.31：不再"脚本一执行就立刻检查"，延迟 3 秒避开初始化高峰（且此时通常已 _wmsDataReady）
+    setTimeout(_checkVer, 3000);
 })();
 
 // v3.12.22：file:// 桌面本地文件版专用版本检测（https 版由 appUpdateGuard + SW 处理）。
 // 本地文件无法注册 Service Worker，也不会自动更新，因此启动时拉取线上 index.html
 // 的版本号，若比本地新则弹提示，避免桌面版永远停留在旧版本。
 (function localFileVersionGuard() {
-    var LOCAL_VERSION = 'v3.12.23';
+    var LOCAL_VERSION = 'v3.12.31';
     var ONLINE_URL = 'https://chengbaojun37-code.github.io/index.html';
     if (window.location.protocol !== 'file:') return;
     function _showLocalUpdateTip(remoteVer) {
