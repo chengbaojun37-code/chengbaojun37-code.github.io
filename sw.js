@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260910k'; // v3.12.39：将 renderDeptDatalist 提前到 DOMContentLoaded 顶部定义，修复异步回调中偶发 "renderDeptDatalist is not defined"
+const CACHE = 'wms-cache-v20260910l'; // v3.12.40：同步修复——编辑即打 lastModified 时间戳 + 拉取时推进 Lamport 时钟基准，杜绝跨端旧数据反杀
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './zxing-browser.min.js'];
 
 self.addEventListener('install', function(e) {
