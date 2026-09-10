@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.39</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.40</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -4178,6 +4178,8 @@ function editShelfLifeItem(code, newVal) {
         item.expireDate = dateArithmetic(item.prodDate, val);
     }
     addLog(translations[currentLang].logTypeEditShelfLife, code, oldVal + '→' + val, '');
+    item.lastModified = _lamportNow();   // v3.12.40：编辑即打时间戳，保证本端修改比任何已拉取数据都新
+    saveAllData();                       // v3.12.40：与其他字段编辑一致，立即落盘+触发同步（此前漏调，改了要等刷新才保存）
 }
 
 function editProdDateItem(code, newVal) {
@@ -4190,6 +4192,8 @@ function editProdDateItem(code, newVal) {
         item.expireDate = dateArithmetic(newVal, item.shelfDays);
     }
     addLog(translations[currentLang].logTypeEditProdDate, code, oldVal + '→' + (newVal || '-'), '');
+    item.lastModified = _lamportNow();   // v3.12.40：编辑即打时间戳
+    saveAllData();                       // v3.12.40：立即落盘+触发同步
 }
 
 function editExpDateItem(code, newVal) {
@@ -4202,6 +4206,8 @@ function editExpDateItem(code, newVal) {
         item.prodDate = dateArithmetic(newVal, -item.shelfDays);
     }
     addLog(translations[currentLang].logTypeEditExpDate, code, oldVal + '→' + (newVal || '-'), '');
+    item.lastModified = _lamportNow();   // v3.12.40：编辑即打时间戳
+    saveAllData();                       // v3.12.40：立即落盘+触发同步
 }
 
 // --- 保质期双击编辑入口 ---
@@ -6316,6 +6322,9 @@ function loadFromGist() {
             var _locObj2 = _safeParse(localStorage.getItem('warehouse-data-new'));
             var _gistObj = _safeParse(data['warehouse-data']);
             var _gistObj2 = _safeParse(data['warehouse-data-new']);
+            // v3.12.40：拉取即推进 Lamport 逻辑时钟基准。否则未拉取对端高水位的一端，
+            // 其后续编辑时间戳可能低于对端旧数据，合并时被"旧数据反杀"，表现为"改了又被旧数据覆盖"。
+            try { _trackMaxTs(_gistObj); _trackMaxTs(_gistObj2); } catch (eT) {}
             // resetAt 重置信号（v3.6b 修正）：记录「被显式清零」的时刻。
             // 关键修正：只丢弃该时刻【之前】存在的旧记录（lastModified <= resetAt），
             // 绝不再整体抹掉本地/手机端在重置之后新写入的数据——
@@ -7292,8 +7301,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.39';
-var APP_CACHE = 'wms-cache-v20260910k';
+var APP_VERSION = '3.12.40';
+var APP_CACHE = 'wms-cache-v20260910l';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
