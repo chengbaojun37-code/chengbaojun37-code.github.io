@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.28</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.29</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1605,6 +1605,67 @@ function setInventoryFilter(filterType) {
 function renderInventory() {
     const grid = document.getElementById('inventory-grid');
     grid.innerHTML = '';
+    // v3.12.29：inventory 为 0 时显示诊断横幅（区分「本地+云端都空」与「加载失败」），
+    // 附「强制从云端拉取」按钮，让用户无需开开发者工具就能自救
+    if (inventory.length === 0) {
+        var _diagHasLocal = false, _diagPresetMismatch = false, _diagLocalVer = 0;
+        try {
+            var _lr = localStorage.getItem('warehouse-data') || localStorage.getItem('warehouse-data-new');
+            if (_lr) { var _ld = JSON.parse(_lr); _diagLocalVer = _ld.dataVersion || 0; _diagHasLocal = !(_ld.inventory && _ld.inventory.length === 0); _diagPresetMismatch = _ld.presetVersion !== PRESET_VERSION; }
+        } catch(e) {}
+        var _diag = document.createElement('div');
+        _diag.style.cssText = 'margin:14px 0;padding:14px 16px;background:#fff7e6;border:1px solid #f5b342;border-radius:8px;color:#7a4f00;font-size:14px;line-height:1.6;';
+        var _diagHtml = '<strong>⚠️ 库存数据为空</strong><br>';
+        if (_diagHasLocal) {
+            _diagHtml += '本地 localStorage 里有 <b>' + _diagLocalVer + '</b> 版本的库存数据，但当前页未加载';
+            if (_diagPresetMismatch) _diagHtml += '（presetVersion 不匹配已自动升级）';
+            _diagHtml += '。通常是 Service Worker 缓存或同步流程卡住导致。<br>';
+        } else {
+            _diagHtml += '本地和云端都没有库存数据。如果是误删，请联系管理员从云端备份恢复。<br>';
+        }
+        _diagHtml += '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">' +
+            '<button type="button" id="btn-diag-reloud-cloud" style="padding:6px 14px;background:#e67e22;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">☁️ 强制从云端拉取</button>' +
+            '<button type="button" id="btn-diag-full-reload" style="padding:6px 14px;background:#3498db;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">🔄 刷新页面（硬刷新）</button>' +
+            '<button type="button" id="btn-diag-show-detail" style="padding:6px 14px;background:#fff;color:#7a4f00;border:1px solid #f5b342;border-radius:4px;cursor:pointer;font-size:13px;">📋 查看诊断详情</button>' +
+            '</div>' +
+            '<pre id="diag-detail" style="display:none;margin-top:10px;padding:10px;background:#f9f9f9;border:1px dashed #ccc;border-radius:4px;font-size:12px;color:#333;white-space:pre-wrap;word-end:break-all;"></pre>';
+        _diag.innerHTML = _diagHtml;
+        grid.appendChild(_diag);
+        var _showDetail = function() {
+            var _pre = document.getElementById('diag-detail');
+            if (!_pre) return;
+            if (_pre.style.display === 'none') {
+                _pre.style.display = 'block';
+                _pre.textContent = 'inventory.length = ' + inventory.length + '\n' +
+                    'localStorage has data: ' + _diagHasLocal + '\n' +
+                    'localStorage dataVersion: ' + _diagLocalVer + '\n' +
+                    'PRESET_VERSION: ' + PRESET_VERSION + '\n' +
+                    'presetVersion mismatch: ' + _diagPresetMismatch + '\n' +
+                    'SYNC_REPO: ' + SYNC_REPO + '\n' +
+                    'SYNC_FILE: ' + SYNC_FILE + '\n' +
+                    'currentFilter: ' + currentFilter + '\n' +
+                    'overviewSourceFilter: ' + overviewSourceFilter + '\n' +
+                    'overviewSubTab: ' + overviewSubTab;
+            } else { _pre.style.display = 'none'; }
+        };
+        var _reloudCloud = function() {
+            var _btn = document.getElementById('btn-diag-reloud-cloud');
+            if (_btn) { _btn.disabled = true; _btn.textContent = '⏳ 拉取中...'; }
+            loadFromGist().then(function(ok) {
+                if (ok) { window.location.reload(); }
+                else { if (_btn) { _btn.disabled = false; _btn.textContent = '☁️ 拉取失败，重试'; } }
+            }).catch(function() { if (_btn) { _btn.disabled = false; _btn.textContent = '☁️ 拉取失败，重试'; } });
+        };
+        var _fullReload = function() { window.location.reload(); };
+        setTimeout(function() {
+            var _b1 = document.getElementById('btn-diag-reloud-cloud');
+            var _b2 = document.getElementById('btn-diag-full-reload');
+            var _b3 = document.getElementById('btn-diag-show-detail');
+            if (_b1) _b1.onclick = _reloudCloud;
+            if (_b2) _b2.onclick = _fullReload;
+            if (_b3) _b3.onclick = _showDetail;
+        }, 0);
+    }
     let filtered = inventory.filter(function(item) {
         const ss = getStockStatus(item), es = getExpireStatus(item.expireDate);
         if (currentFilter === 'low') return ss === 'low';
@@ -3234,7 +3295,9 @@ function loadAllData() {
     if (raw) {
         try {
             const data = JSON.parse(raw);
-            if (data.presetVersion !== PRESET_VERSION) return false;
+            // v3.12.29：presetVersion 不匹配不再直接返回 false（之前会让用户看到空库存），
+            // 而是先把数据加载进来并把 presetVersion 升级写回 localStorage；
+            // loadFromGist 仍会用 dataVersion 做权威合并覆盖，避免误用陈旧版本。
             inventory = data.inventory || [];
             inboundHistory = data.inboundHistory || [];
             outboundHistory = data.outboundHistory || [];
@@ -3243,9 +3306,14 @@ function loadAllData() {
             deletedAtMap = data.deletedAt || {};
             deletedHistKeys = data.deletedHist || {};
             deletedImageKeys = data.deletedImages || {};
-            restoredImageKeys = data.restoredImages || {};   // v3.12.19：图片复活标记
-            var _ldTomb = _effectiveImageTombstones();      // v3.12.19：复活标记压过墓碑后才算真墓碑
+            restoredImageKeys = data.restoredImages || {};
+            if (data.presetVersion !== PRESET_VERSION) {
+                // 版本不一致：升级 presetVersion 后写回（让下次 loadAllData 走快路径）
+                data.presetVersion = PRESET_VERSION;
+                try { localStorage.setItem('warehouse-data', JSON.stringify(data)); } catch(e) {}
+            }
             dataVersion = data.dataVersion || 0;
+            var _ldTomb = _effectiveImageTombstones();      // v3.12.19：复活标记压过墓碑后才算真墓碑
             if (data.warehousePassword) warehousePassword = data.warehousePassword;
             if (inventory.length === 0 && inboundHistory.length === 0 && outboundHistory.length === 0 && operationLogs.length === 0) return false;
             // 兼容旧数据：无 source 字段默认 "cn"
