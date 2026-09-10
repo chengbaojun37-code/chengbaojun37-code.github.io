@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.33</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.34</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -4405,6 +4405,36 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const loaded = loadAllData();
     if (!loaded) initSampleData();
+    // v3.12.34 终极兜底：无论 loadAllData 结果如何，inventory 仍为 0 时强制用 EMBEDDED_FALLBACK 覆盖
+    // 这一步绕过所有 localStorage 污染 / 版本守卫 / sync 失败的拦截，确保用户看到真实数据
+    try {
+        if ((!inventory || inventory.length === 0) &&
+            typeof _EMBEDDED_FALLBACK === 'object' && _EMBEDDED_FALLBACK &&
+            _EMBEDDED_FALLBACK.inventory && _EMBEDDED_FALLBACK.inventory.length > 0) {
+            console.warn('[v3.12.34] inventory 仍为 0，运行时强强制覆盖为 EMBEDDED_FALLBACK（' + _EMBEDDED_FALLBACK.inventory.length + ' 项）');
+            inventory = _EMBEDDED_FALLBACK.inventory.slice();  // slice() 复制避免共享引用
+            if (!inboundHistory || inboundHistory.length === 0) inboundHistory = (_EMBEDDED_FALLBACK.inboundHistory || []).slice();
+            if (!outboundHistory || outboundHistory.length === 0) outboundHistory = (_EMBEDDED_FALLBACK.outboundHistory || []).slice();
+            if (!dataVersion || dataVersion < (_EMBEDDED_FALLBACK.dataVersion || 0)) dataVersion = _EMBEDDED_FALLBACK.dataVersion || 0;
+            // 强制写回 localStorage（下次刷新直接命中）
+            try {
+                var _saveObj = {
+                    inventory: inventory,
+                    inboundHistory: inboundHistory,
+                    outboundHistory: outboundHistory,
+                    operationLogs: operationLogs || [],
+                    deletedCodes: deletedCodes || [],
+                    deletedAt: deletedAtMap || {},
+                    deletedHist: deletedHistKeys || {},
+                    dataVersion: dataVersion,
+                    presetVersion: _EMBEDDED_FALLBACK.presetVersion || PRESET_VERSION,
+                };
+                localStorage.setItem('warehouse-data', JSON.stringify(_saveObj));
+                localStorage.setItem('v3_12_34_force_applied', '1');
+                console.log('[v3.12.34] 已强制写入 localStorage: 物料=' + inventory.length + ' dataVersion=' + dataVersion);
+            } catch (_se) { console.warn('[v3.12.34] localStorage 写入失败：', _se); }
+        }
+    } catch (_fe) { console.warn('[v3.12.34] 强强制兜底失败：', _fe); }
     // 批量规范化出库历史中的部门名称
     normalizeAllOutboundDepartments();
     // Merge preset images from IMAGE_DATA for display
@@ -7074,7 +7104,7 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.33';
+var APP_VERSION = '3.12.34';
 var APP_CACHE = 'wms-cache-v20260910d';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
