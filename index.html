@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.31</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.32</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1579,6 +1579,60 @@ function addLog(type, code, qtyChange, note) {
 }
 
 function updateStats() {
+    // v3.12.32：库存为空时，在顶部 4 卡片上方立即显示醒目横幅，并自动触发一次云端恢复
+    // （用多源兜底，含同域 Pages 源，用户网络下最稳）。避免用户只看得到 0 却不明白原因。
+    var _alert = document.getElementById('top-data-alert');
+    if (!_alert) {
+        _alert = document.createElement('div');
+        _alert.id = 'top-data-alert';
+        _alert.className = 'alert';
+        _alert.style.cssText = 'display:none;margin:10px 0;padding:12px 16px;background:#fff3f3;border:1px solid #e74c3c;color:#c0392b;border-radius:8px;font-size:14px;line-height:1.6;';
+        var _sc = document.querySelector('.stats-cards');
+        if (_sc && _sc.parentNode) _sc.parentNode.insertBefore(_alert, _sc);
+    }
+    if (inventory.length === 0) {
+        _alert.style.display = 'block';
+        if (!window._topBannerBusy) {
+            window._topBannerBusy = true;
+            _alert.innerHTML = '⚠️ 库存数据为空，正在自动从云端恢复…（数据源：' + (_lastFetchSource || '初始化') + '）';
+            loadFromGist().then(function(ok) {
+                window._topBannerBusy = false;
+                if (ok) { window.location.reload(); }
+                else {
+                    _alert.innerHTML = '⚠️ 自动恢复失败（所有数据源均不可达）。请手动操作：'
+                        + ' <button type="button" id="btn-top-force-cloud" style="padding:5px 12px;background:#e74c3c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">📥 强制从云端恢复</button>'
+                        + ' <button type="button" id="btn-top-paste" style="padding:5px 12px;background:#fff;color:#c0392b;border:1px solid #e74c3c;border-radius:4px;cursor:pointer;font-size:13px;">📋 粘贴 JSON 恢复</button>';
+                    var _bf = document.getElementById('btn-top-force-cloud');
+                    if (_bf) _bf.onclick = function() {
+                        window._topBannerBusy = true; _alert.innerHTML = '⏳ 正在从云端拉取…';
+                        loadFromGist().then(function(ok2) {
+                            window._topBannerBusy = false;
+                            if (ok2) window.location.reload();
+                            else _alert.innerHTML = '⚠️ 恢复失败，数据源=' + (_lastFetchSource || '?') + '。请改用「粘贴 JSON 恢复」或联系管理员。';
+                        });
+                    };
+                    var _bp = document.getElementById('btn-top-paste');
+                    if (_bp) _bp.onclick = function() {
+                        var _txt = prompt('把 wms-sync-data.json 内容整段粘贴到这里（从浏览器访问 https://chengbaojun37-code.github.io/wms-sync-data.json 复制全文）：');
+                        if (_txt) {
+                            try {
+                                var _d = JSON.parse(_txt);
+                                if (_d['warehouse-data-new']) _d = JSON.parse(_d['warehouse-data-new']);
+                                if (_d.inventory) {
+                                    localStorage.setItem('warehouse-data', JSON.stringify(_d));
+                                    localStorage.setItem('warehouse-data-new', JSON.stringify(_d));
+                                    _alert.innerHTML = '✅ 已写入本地，正在刷新…';
+                                    setTimeout(function() { window.location.reload(); }, 800);
+                                } else _alert.innerHTML = '⚠️ 粘贴的内容不含 inventory 字段，请确认复制完整。';
+                            } catch(e) { _alert.innerHTML = '⚠️ 解析失败：' + e.message; }
+                        }
+                    };
+                }
+            });
+        }
+    } else {
+        _alert.style.display = 'none';
+    }
     var statsItems = inventory;
     if (overviewSourceFilter !== 'all') {
         statsItems = inventory.filter(function(item) { return (item.source || 'cn') === overviewSourceFilter; });
@@ -5840,12 +5894,17 @@ function _fetchCloudDataObj() {
 //   → raw.githubusercontent.com（CDN 加速，偶发返回空，备用）
 //   → jsdelivr CDN 镜像（git 仓库直接 serve raw，最稳定的第三方镜像）
 // 任一源拉到数据即返回，且记录到 _lastFetchSource 供诊断用。失败返回 null。
+// v3.12.32：新增「同域 Pages 源」作为最优先尝试——用户能打开本站点就一定能访问同域文件，
+//   无 CORS 问题、不受外部 CDN 封锁影响，是用户网络（如俄罗斯）环境下最可靠的兜底。
 var _lastFetchSource = '';
 function _fetchCloudDataObjMulti() {
     var branch = SYNC_BRANCH;
     var repo = SYNC_REPO;
     var file = SYNC_FILE;
     var sources = [
+        { name: 'pages-same-origin', type: 'raw',
+          url: './' + file + '?_=' + Date.now(),
+          auth: false },
         { name: 'api.github.com', type: 'api',
           url: 'https://api.github.com/repos/' + repo + '/contents/' + file + '?ref=' + branch + '&_=' + Date.now(),
           auth: true },
@@ -6965,7 +7024,7 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.31';
+var APP_VERSION = '3.12.32';
 var APP_CACHE = 'wms-cache-v20260910d';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
