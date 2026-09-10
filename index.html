@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.38</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.39</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -4545,6 +4545,26 @@ function normalizeAllOutboundDepartments() {
 document.addEventListener('DOMContentLoaded', function() {
     // 启动阶段禁止 saveToGist 上传，避免本地旧数据污染 Gist
     _gistLoading = true;
+
+    // v3.12.39：把 renderDeptDatalist 提到 DOMContentLoaded 最顶部定义。
+    // 某些浏览器（或特定缓存/解析路径）下，函数声明提升没有让 Promise.then 回调找到它，
+    // 导致 loadFromGist / pollGistSync 的 then 回调调用 renderDeptDatalist 时抛 ReferenceError。
+    // 这里显式提前定义，彻底规避作用域/提升异常。
+    function renderDeptDatalist() {
+        var dl = document.getElementById('dept-list');
+        if (!dl) return;
+        var depts = getDepartmentList();
+        dl.innerHTML = '';
+        depts.forEach(function(d) {
+            var opt = document.createElement('option');
+            opt.value = d;
+            dl.appendChild(opt);
+        });
+        // v3.12.10：同步刷新主表单领用部门下拉（保留当前选中值，避免刷新时丢失用户已选部门）
+        var _hd = document.getElementById('outbound-department');
+        _populateOutboundDepartmentSelect(_hd ? _hd.value : '');
+    }
+
     // v3.12.38：最先绑定核心导航(tab / 语言切换)，独立于后续任何数据恢复或渲染逻辑。
     // 即使下面的 localStorage 恢复 / refreshAll 抛错，导航也已就绪 —— 页面永远不会"点不动"。
     try { bindNavigation(); } catch (_navErr) { _showFatalBanner('导航绑定失败: ' + (_navErr && _navErr.message)); }
@@ -5208,21 +5228,6 @@ document.addEventListener('DOMContentLoaded', function() {
             localStorage.setItem('warehouse_dept_list', JSON.stringify(customList));
             renderDeptDatalist();
         }
-    }
-
-    function renderDeptDatalist() {
-        var dl = document.getElementById('dept-list');
-        if (!dl) return;
-        var depts = getDepartmentList();
-        dl.innerHTML = '';
-        depts.forEach(function(d) {
-            var opt = document.createElement('option');
-            opt.value = d;
-            dl.appendChild(opt);
-        });
-        // v3.12.10：同步刷新主表单领用部门下拉（保留当前选中值，避免刷新时丢失用户已选部门）
-        var _hd = document.getElementById('outbound-department');
-        _populateOutboundDepartmentSelect(_hd ? _hd.value : '');
     }
 
     // 部门管理弹窗
@@ -7287,8 +7292,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.38';
-var APP_CACHE = 'wms-cache-v20260910j';
+var APP_VERSION = '3.12.39';
+var APP_CACHE = 'wms-cache-v20260910k';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
