@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260910l'; // v3.12.40：同步修复——编辑即打 lastModified 时间戳 + 拉取时推进 Lamport 时钟基准，杜绝跨端旧数据反杀
+const CACHE = 'wms-cache-v20260910m'; // v3.12.41：入库/出库增加“出入库时间”字段；月/季/年出库改为按记录操作时间（dateISO）做月份隔离，新增月份选择器可翻看任意月，确保月底截止、跨月不串数据
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './zxing-browser.min.js'];
 
 self.addEventListener('install', function(e) {
