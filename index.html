@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.40</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.41</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -779,6 +779,12 @@
                     <input type="text" id="inbound-notes">
                 </div>
             </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>出入库时间 / Время операции</label>
+                    <input type="datetime-local" id="inbound-time">
+                </div>
+            </div>
             <button type="submit" class="btn btn-primary admin-only" id="btn-inbound-submit">确认入库</button>
         </form>
         <h3 id="inbound-history-title" style="margin-top:30px;">入库记录</h3>
@@ -829,6 +835,12 @@
                     <input type="hidden" id="outbound-department" value="">
                     <button type="button" class="btn-manage-dept" id="btn-manage-dept">管理</button>
                     <datalist id="dept-list"></datalist>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>出入库时间 / Время операции</label>
+                    <input type="datetime-local" id="outbound-time">
                 </div>
             </div>
             <div class="form-group">
@@ -894,6 +906,11 @@
     <!-- ==================== 月出库页 ==================== -->
     <div id="page-month-outbound" class="page">
         <h3 id="month-outbound-title">月出库</h3>
+        <div class="period-picker-bar" style="margin:10px 0 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <label for="period-picker-month" style="font-size:14px;font-weight:600;">选择月份 / Месяц:</label>
+            <input type="month" id="period-picker-month">
+            <span id="period-picker-month-hint" style="color:#7f8c8d;font-size:13px;"></span>
+        </div>
         <div class="summary-table-wrap" id="month-outbound-container">
             <div class="no-data" id="month-outbound-empty" style="display:none;text-align:center;padding:40px;color:#888;">暂无数据</div>
         </div>
@@ -902,6 +919,11 @@
     <!-- ==================== 季度出库页 ==================== -->
     <div id="page-quarter-outbound" class="page">
         <h3 id="quarter-outbound-title">季度出库</h3>
+        <div class="period-picker-bar" style="margin:10px 0 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <label for="period-picker-quarter" style="font-size:14px;font-weight:600;">选择月份 / Месяц:</label>
+            <input type="month" id="period-picker-quarter">
+            <span id="period-picker-quarter-hint" style="color:#7f8c8d;font-size:13px;"></span>
+        </div>
         <div class="summary-table-wrap" id="quarter-outbound-container">
             <div class="no-data" id="quarter-outbound-empty" style="display:none;text-align:center;padding:40px;color:#888;">暂无数据</div>
         </div>
@@ -910,6 +932,11 @@
     <!-- ==================== 年出库页 ==================== -->
     <div id="page-year-outbound" class="page">
         <h3 id="year-outbound-title">年出库</h3>
+        <div class="period-picker-bar" style="margin:10px 0 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <label for="period-picker-year" style="font-size:14px;font-weight:600;">选择月份 / Месяц:</label>
+            <input type="month" id="period-picker-year">
+            <span id="period-picker-year-hint" style="color:#7f8c8d;font-size:13px;"></span>
+        </div>
         <div class="summary-table-wrap" id="year-outbound-container">
             <div class="no-data" id="year-outbound-empty" style="display:none;text-align:center;padding:40px;color:#888;">暂无数据</div>
         </div>
@@ -936,7 +963,7 @@
         <p class="modal-desc" id="outbound-edit-desc">修改任意字段后保存，库存将自动重算并同步到所有设备</p>
         <div class="form-group">
             <label for="outbound-edit-date" id="label-oe-date">日期 / 时间</label>
-            <input type="text" id="outbound-edit-date" autocomplete="off">
+            <input type="datetime-local" id="outbound-edit-date" autocomplete="off">
         </div>
         <div class="form-group">
             <label for="outbound-edit-code" id="label-oe-code">物料编号</label>
@@ -1127,6 +1154,11 @@ function bindNavigation() {
             this.classList.add('active');
             var pageEl = document.getElementById('page-' + target);
             if (pageEl) pageEl.classList.add('active');
+            // v3.12.41：进入入库/出库页时，若时间字段为空则补“现在”（保留用户已填的自定义时间）
+            try {
+                if (target === 'inbound') { var _itx = document.getElementById('inbound-time'); if (_itx && !_itx.value) _itx.value = _nowLocalInput(); }
+                if (target === 'outbound') { var _otx = document.getElementById('outbound-time'); if (_otx && !_otx.value) _otx.value = _nowLocalInput(); }
+            } catch (_) {}
             try {
                 if (target === 'summary') renderSummary();
                 if (target === 'log') renderLog();
@@ -1469,6 +1501,10 @@ let inventory = [];
 let inboundHistory = [];
 let outboundHistory = [];
 var outboundSearchCode = ''; // v3.12.27：出库记录按物料编号搜索的当前关键词（不区分大小写、trim 后匹配 code）
+// v3.12.41：周期（月/季/年出库）统计所依据的“选中月份”，由页面上的 month 选择器驱动，默认当前月。
+// 这样某月的出入库记录只会出现在该月的统计里，不会串到其它月份（实现月底截止、跨月不串数据）。
+var _periodYear = (new Date()).getFullYear();
+var _periodMonth = (new Date()).getMonth() + 1;
 let operationLogs = [];
 let dataVersion = 0;
 let deletedCodes = [];        // 删除墓碑：记录已删除的物料 code，合并时过滤，防止其他端"复活"
@@ -1651,6 +1687,50 @@ function addLog(type, code, qtyChange, note) {
         note: note || ''
     });
     dataVersion++;
+}
+
+// ===== v3.12.41：出入库时间（操作时间）辅助函数 =====
+// 设计：每条入库/出库记录都带一个“操作时间”——界面以 datetime-local 编辑，
+// 落库时同时保存规范展示串 date（YYYY-MM-DD HH:MM:SS，与操作日志 time 同格式，便于关联备注）
+// 与机器可解析串 dateISO（YYYY-MM-DDTHH:MM:SS）。周期统计一律按 dateISO 解析月份，
+// 从而保证“某月的数据只出现在该月”，实现月底截止、跨月不串数据。
+function _pad2(n) { return String(n).padStart(2, '0'); }
+function _nowLocalInput() {
+    var d = new Date();
+    return d.getFullYear() + '-' + _pad2(d.getMonth() + 1) + '-' + _pad2(d.getDate()) + 'T' + _pad2(d.getHours()) + ':' + _pad2(d.getMinutes());
+}
+function _dateToDisplay(d) {
+    if (!(d instanceof Date) || isNaN(d.getTime())) d = new Date();
+    return d.getFullYear() + '-' + _pad2(d.getMonth() + 1) + '-' + _pad2(d.getDate()) + ' ' +
+        _pad2(d.getHours()) + ':' + _pad2(d.getMinutes()) + ':' + _pad2(d.getSeconds());
+}
+// 从记录解析出 Date（优先 dateISO，回退旧 date 串；都不行返回 null）
+function _recDate(r) {
+    if (!r) return null;
+    if (r.dateISO) { var t = new Date(r.dateISO); if (!isNaN(t.getTime())) return t; }
+    if (r.date) { var t2 = new Date(r.date); if (!isNaN(t2.getTime())) return t2; }
+    return null;
+}
+// 记录 -> datetime-local 输入框串（YYYY-MM-DDTHH:MM），供编辑弹窗回填
+function _recToLocalInput(r) {
+    var d = _recDate(r);
+    if (d) return d.getFullYear() + '-' + _pad2(d.getMonth() + 1) + '-' + _pad2(d.getDate()) + 'T' + _pad2(d.getHours()) + ':' + _pad2(d.getMinutes());
+    return _nowLocalInput();
+}
+// 由 datetime-local 值（或空=现在）构造 {dateISO, date}
+function _buildRecDate(dt) {
+    var s = (dt || '').trim();
+    if (!s) {
+        var n = new Date();
+        return { dateISO: n.getFullYear() + '-' + _pad2(n.getMonth() + 1) + '-' + _pad2(n.getDate()) + 'T' + _pad2(n.getHours()) + ':' + _pad2(n.getMinutes()) + ':00', date: _dateToDisplay(n) };
+    }
+    if (s.length === 16) s += ':00'; // "YYYY-MM-DDTHH:MM" -> 补秒
+    var t = new Date(s);
+    if (isNaN(t.getTime())) {
+        var n2 = new Date();
+        return { dateISO: n2.getFullYear() + '-' + _pad2(n2.getMonth() + 1) + '-' + _pad2(n2.getDate()) + 'T' + _pad2(n2.getHours()) + ':' + _pad2(n2.getMinutes()) + ':00', date: _dateToDisplay(n2) };
+    }
+    return { dateISO: s, date: _dateToDisplay(t) };
 }
 
 function updateStats() {
@@ -2543,24 +2623,28 @@ function renderHistoryTables() {
 
 function renderPeriodOutbound() {
     var t = translations[currentLang];
-    var now = new Date();
-    var thisYear = now.getFullYear();
-    var thisMonth = now.getMonth() + 1;
+    // v3.12.41：周期统计以“选中月份”（页面 month 选择器，默认当前月）为准，而非实时 now，
+    // 这样可翻看任意历史月份，并确保每个月的出入库记录只会出现在自己的月份里（跨月不串）。
+    var thisYear = _periodYear;
+    var thisMonth = _periodMonth;
     var quarterStartMonth = Math.floor((thisMonth - 1) / 3) * 3 + 1;
     var monthNamesZh = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
     var monthNamesRu = ['Янв.','Фев.','Мар.','Апр.','Май','Июн.','Июл.','Авг.','Сен.','Окт.','Ноя.','Дек.'];
 
     function inMonth(rec) {
-        var d = new Date(rec.date);
+        var d = _recDate(rec);
+        if (!d) return false;
         return d.getFullYear() === thisYear && (d.getMonth() + 1) === thisMonth;
     }
     function inQuarter(rec) {
-        var d = new Date(rec.date);
+        var d = _recDate(rec);
+        if (!d) return false;
         var m = d.getMonth() + 1;
         return d.getFullYear() === thisYear && m >= quarterStartMonth && m <= quarterStartMonth + 2;
     }
     function inYear(rec) {
-        var d = new Date(rec.date);
+        var d = _recDate(rec);
+        if (!d) return false;
         return d.getFullYear() === thisYear;
     }
 
@@ -3275,7 +3359,7 @@ function editOutboundRecord(idx) {
         document.getElementById('label-oe-operator').textContent = isZh ? '操作人' : 'Оператор';
         document.getElementById('btn-outbound-edit-cancel').textContent = isZh ? '取消' : 'Отмена';
         document.getElementById('btn-outbound-edit-save').textContent = isZh ? '保存' : 'Сохранить';
-        document.getElementById('outbound-edit-date').value = r.date || '';
+        document.getElementById('outbound-edit-date').value = _recToLocalInput(r);
         document.getElementById('outbound-edit-code').value = r.code || '';
         document.getElementById('outbound-edit-name').value = r.name || '';
         document.getElementById('outbound-edit-quantity').value = String(r.quantity);
@@ -3373,6 +3457,7 @@ function saveOutboundEditModal() {
     var nQty = parseFloat(String(document.getElementById('outbound-edit-quantity').value).replace(',', '.'));
     var nDept = normalizeDepartment(document.getElementById('outbound-edit-department').value);
     var nOper = document.getElementById('outbound-edit-operator').value.trim();
+    var _bd = _buildRecDate(nDate); // v3.12.41：把 datetime-local 解析为规范 date/dateISO
     // 校验
     if (!nDate) { showAlert('error', isZh ? '日期不能为空' : 'Дата не может быть пустой', 'outbound'); return; }
     if (!nCode) { showAlert('error', isZh ? '物料编号不能为空' : 'Код материала не может быть пустым', 'outbound'); return; }
@@ -3385,7 +3470,7 @@ function saveOutboundEditModal() {
     }
     if (!nName) nName = invItem.name || nCode; // 名称留空自动回填
     if (!nOper) nOper = currentUser || (isZh ? '当前用户' : 'Текущий');
-    var newRec = { date: nDate, code: nCode, barcode: r.barcode || '', name: nName, quantity: nQty, department: nDept, operator: nOper };
+    var newRec = { date: _bd.date, dateISO: _bd.dateISO, code: nCode, barcode: r.barcode || '', name: nName, quantity: nQty, department: nDept, operator: nOper };
     // 负库存校验：检查受影响的物料（新编号；旧编号只减不增必安全）
     var newStock = _previewStockAfter(nCode, _outEditIdx, newRec);
     if (newStock < 0) {
@@ -3394,7 +3479,7 @@ function saveOutboundEditModal() {
     }
     // 生成修改摘要（操作日志）
     var changes = [];
-    if (nDate !== (r.date || '')) changes.push((isZh ? '日期→' : 'дата→') + nDate);
+    if (nDate !== (r.date || '') && nDate !== (r.dateISO || '')) changes.push((isZh ? '日期→' : 'дата→') + _bd.date);
     if (nCode !== (r.code || '')) changes.push((isZh ? '编号→' : 'код→') + nCode);
     if (nName !== (r.name || '')) changes.push((isZh ? '名称→' : 'назв.→') + nName);
     if (nQty !== Number(r.quantity)) changes.push((Number(r.quantity) || 0) + ' → ' + nQty);
@@ -3404,7 +3489,7 @@ function saveOutboundEditModal() {
     var oldCode = r.code;
     var oldKey = _genHistKey(r, 'out');
     // 应用修改
-    r.date = nDate; r.code = nCode; r.barcode = r.barcode || ''; r.name = nName;
+    r.date = _bd.date; r.dateISO = _bd.dateISO; r.code = nCode; r.barcode = r.barcode || ''; r.name = nName;
     r.quantity = nQty; r.department = nDept; r.operator = nOper;
     // 旧记录键入墓碑：其他端仍持有旧记录，union 合并时过滤；新记录经合并扩散
     deletedHistKeys[oldKey] = Date.now();
@@ -3412,7 +3497,7 @@ function saveOutboundEditModal() {
     _recomputeStockForCode(oldCode);
     if (nCode !== oldCode) _recomputeStockForCode(nCode);
     if (nDept) saveCustomDepartment(nDept);
-    addLog(currentLang === 'zh' ? '修改出库记录' : 'Изменение записи отгрузки', nCode, changes.join('，'), nDate + ' ' + nName);
+    addLog(currentLang === 'zh' ? '修改出库记录' : 'Изменение записи отгрузки', nCode, changes.join('，'), _bd.date + ' ' + nName);
     saveAllData();
     refreshAll();
     closeOutboundEditModal();
@@ -4574,6 +4659,35 @@ document.addEventListener('DOMContentLoaded', function() {
     // v3.12.38：最先绑定核心导航(tab / 语言切换)，独立于后续任何数据恢复或渲染逻辑。
     // 即使下面的 localStorage 恢复 / refreshAll 抛错，导航也已就绪 —— 页面永远不会"点不动"。
     try { bindNavigation(); } catch (_navErr) { _showFatalBanner('导航绑定失败: ' + (_navErr && _navErr.message)); }
+
+    // v3.12.41：出入库时间字段默认“现在” + 周期月份选择器初始化
+    try {
+        var _defNow = _nowLocalInput();
+        var _it0 = document.getElementById('inbound-time'); if (_it0) _it0.value = _defNow;
+        var _ot0 = document.getElementById('outbound-time'); if (_ot0) _ot0.value = _defNow;
+        function _syncPeriodPickers() {
+            var v = _periodYear + '-' + (String(_periodMonth).padStart(2, '0'));
+            ['period-picker-month', 'period-picker-quarter', 'period-picker-year'].forEach(function (id) {
+                var el = document.getElementById(id); if (el) el.value = v;
+            });
+            var hint = _periodYear + '年' + _periodMonth + '月 / ' + _periodYear + '-' + (String(_periodMonth).padStart(2, '0'));
+            ['period-picker-month-hint', 'period-picker-quarter-hint', 'period-picker-year-hint'].forEach(function (id) {
+                var h = document.getElementById(id); if (h) h.textContent = hint;
+            });
+        }
+        function _onPeriodPick(e) {
+            var v = e.target.value; if (!v || v.length < 7) return;
+            _periodYear = parseInt(v.slice(0, 4), 10);
+            _periodMonth = parseInt(v.slice(5, 7), 10);
+            _syncPeriodPickers();
+            try { renderPeriodOutbound(); } catch (_e) { _showFatalBanner('周期渲染失败: ' + _e.message); }
+        }
+        ['period-picker-month', 'period-picker-quarter', 'period-picker-year'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.addEventListener('change', _onPeriodPick);
+        });
+        _syncPeriodPickers();
+    } catch (_eP) { console.warn('周期选择器初始化失败', _eP); }
     // v3.12.33：先尝试用 EMBEDDED_FALLBACK 覆盖被污染的 localStorage
     // 场景：用户浏览器 localStorage 里有一份"空 inventory" + 高 dataVersion → loadAllData 返回 false → 系统显示 0
     // 兜底：检测到 localStorage 为空或全空数据，立即用页面内嵌的云端快照覆盖（保证有数据可显示）
@@ -4955,7 +5069,8 @@ document.addEventListener('DOMContentLoaded', function() {
             inventory.push(item);
         }
         inboundHistory.unshift({
-            date: new Date().toLocaleString('zh-CN'),
+            dateISO: _buildRecDate(document.getElementById('inbound-time').value).dateISO,
+            date: _buildRecDate(document.getElementById('inbound-time').value).date,
             code: code, barcode: '', name: name, quantity: quantity, supplier: '',
             personnel: personnel, operator: operator, image: imageData, source: source
         });
@@ -4970,6 +5085,8 @@ document.addEventListener('DOMContentLoaded', function() {
         try { localStorage.setItem('gist-pending-sync', 'true'); localStorage.setItem('gist-pending-sync-new', 'true'); } catch (e) {}
         scheduleSync(true);
         this.reset();
+        // v3.12.41：重置后把出入库时间默认回“现在”，避免沿用上一条的时间
+        try { document.getElementById('inbound-time').value = _nowLocalInput(); } catch (_) {}
         // v3.9.6：表单重置后采购地按钮组高亮同步复位到「中国集装箱」（与隐藏域默认值一致）
         document.getElementById('inbound-source').value = 'cn';
         document.querySelectorAll('#inbound-source-filter .source-filter-btn').forEach(function(b) {
@@ -5452,7 +5569,8 @@ document.addEventListener('DOMContentLoaded', function() {
         item.stock -= quantity;
         item._cumOut = (item._cumOut || 0) + quantity;
         outboundHistory.unshift({
-            date: new Date().toLocaleString('zh-CN'),
+            dateISO: _buildRecDate(document.getElementById('outbound-time').value).dateISO,
+            date: _buildRecDate(document.getElementById('outbound-time').value).date,
             code: code, barcode: '', name: name, quantity: quantity, department: department,
             operator: currentUser || (currentLang === 'zh' ? '当前用户' : 'Текущий')
         });
@@ -5473,6 +5591,9 @@ document.addEventListener('DOMContentLoaded', function() {
             if (_hd) _hd.value = '';
             var _sg = document.getElementById('outbound-code-suggestions');
             if (_sg) { _sg.classList.remove('show'); _sg.innerHTML = ''; }
+            // v3.12.41：重置后把出入库时间默认回“现在”
+            var _ot = document.getElementById('outbound-time');
+            if (_ot) _ot.value = _nowLocalInput();
         } catch(_) {}
         refreshAll();
         saveAllData();
@@ -7301,8 +7422,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.40';
-var APP_CACHE = 'wms-cache-v20260910l';
+var APP_VERSION = '3.12.41';
+var APP_CACHE = 'wms-cache-v20260910m';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
