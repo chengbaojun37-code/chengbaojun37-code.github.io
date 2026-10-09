@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.41</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.42</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -856,6 +856,10 @@
             <button type="button" class="btn btn-primary" id="btn-outbound-search" style="white-space:nowrap;">搜索</button>
             <button type="button" class="btn btn-outline" id="btn-outbound-search-clear" style="white-space:nowrap;">清除</button>
             <span id="outbound-search-info" style="color:#7f8c8d;font-size:13px;"></span>
+        </div>
+        <div class="outbound-accordion-tools" style="margin:0 0 10px;display:flex;gap:8px;">
+            <button type="button" class="btn btn-outline" id="btn-outbound-expand-all" style="white-space:nowrap;font-size:13px;padding:6px 12px;">展开全部</button>
+            <button type="button" class="btn btn-outline" id="btn-outbound-collapse-all" style="white-space:nowrap;font-size:13px;padding:6px 12px;">收起全部</button>
         </div>
         <div id="outbound-history-container"></div>
     </div>
@@ -1505,6 +1509,10 @@ var outboundSearchCode = ''; // v3.12.27：出库记录按物料编号搜索的�
 // 这样某月的出入库记录只会出现在该月的统计里，不会串到其它月份（实现月底截止、跨月不串数据）。
 var _periodYear = (new Date()).getFullYear();
 var _periodMonth = (new Date()).getMonth() + 1;
+// v3.12.42：出库记录按门店（领用部门）折叠展示——默认折叠，点击门店标题展开该门店明细。
+// _expandedDepts 记录被展开过的门店名（true=展开）；10 秒自动刷新重新渲染时会读取此状态，避免被强制收起。
+var _expandedDepts = {};
+var _knownDepts = []; // 每次渲染收集到当前可见的门店名列表，供“展开全部/收起全部”使用
 let operationLogs = [];
 let dataVersion = 0;
 let deletedCodes = [];        // 删除墓碑：记录已删除的物料 code，合并时过滤，防止其他端"复活"
@@ -2562,17 +2570,30 @@ function renderHistoryTables() {
         var deptNames = Object.keys(deptGroups).sort();
         var _grandTotal = 0;
         var _grandCount = 0;
+        _knownDepts = deptNames.slice(); // v3.12.42：记录当前可见门店名，供“展开全部/收起全部”
         deptNames.forEach(function(dept) {
             var headingText = dept;
             if (dept === '未分类' || dept === 'Без категории') {
                 headingText = currentLang === 'zh' ? '未分类 / Без категории' : 'Без категории / 未分类';
             }
-            var sectionDiv = document.createElement('div');
-            sectionDiv.style.marginBottom = '24px';
-            var h4 = document.createElement('h4');
-            h4.textContent = headingText;
-            h4.style.cssText = 'margin:15px 0 8px;padding:8px 14px;background:#f0f4ff;border-left:4px solid #4a90d9;font-size:15px;';
-            sectionDiv.appendChild(h4);
+            // 先算出门店合计，用于标题摘要
+            var _deptQty = 0;
+            deptGroups[dept].forEach(function(entry) {
+                _deptQty += (Number(entry.r.quantity) || 0);
+            });
+            var _isExpanded = !!_expandedDepts[dept]; // v3.12.42：默认折叠，展开状态跨刷新保留
+            // 折叠标题（可点击）
+            var headerDiv = document.createElement('div');
+            headerDiv.style.cssText = 'margin:8px 0;padding:10px 14px;background:#f0f4ff;border-left:4px solid #4a90d9;font-size:15px;cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center;';
+            var _hdrLabel = (currentLang === 'zh'
+                ? headingText + ' · ' + deptGroups[dept].length + ' 笔 · 合计 ' + formatQty(_deptQty)
+                : headingText + ' · ' + deptGroups[dept].length + ' зап. · всего ' + formatQty(_deptQty));
+            var _arrowSpan = document.createElement('span');
+            _arrowSpan.textContent = (_isExpanded ? '▼ ' : '▶ ') + _hdrLabel;
+            headerDiv.appendChild(_arrowSpan);
+            // 折叠内容容器
+            var bodyDiv = document.createElement('div');
+            bodyDiv.style.display = _isExpanded ? 'block' : 'none';
             var table = document.createElement('table');
             table.className = 'table';
             table.innerHTML = '<thead><tr><th id="th-date-out">日期</th><th id="th-code-out">物料编号</th>' +
@@ -2580,7 +2601,6 @@ function renderHistoryTables() {
                 '<th id="th-department">领用部门</th><th id="th-operator-out">操作人</th>' +
                 (isAdmin ? '<th>' + t.thAction + '</th>' : '') + '</tr></thead><tbody></tbody>';
             var tbody = table.querySelector('tbody');
-            var _deptQty = 0;
             deptGroups[dept].forEach(function(entry) {
                 var record = entry.r;
                 var actHtml = '-';
@@ -2593,7 +2613,6 @@ function renderHistoryTables() {
                     '<td>'+formatQty(record.quantity)+'</td><td>'+(unitMap[record.code]||'-')+'</td><td>'+normalizeDepartment(record.department||'-')+'</td><td>'+record.operator+'</td>' +
                     (isAdmin ? '<td style="white-space:nowrap;">'+actHtml+'</td>' : '');
                 tbody.appendChild(tr);
-                _deptQty += (Number(record.quantity) || 0);
             });
             // 部门小计行
             var sumTr = document.createElement('tr');
@@ -2601,8 +2620,16 @@ function renderHistoryTables() {
             sumTr.innerHTML = '<td colspan="3" style="text-align:right;">' + (currentLang === 'zh' ? '本部门小计' : 'Итого по отделу') + '：</td>' +
                 '<td>' + formatQty(_deptQty) + '</td><td colspan="' + (isAdmin ? '4' : '3') + '">' + deptGroups[dept].length + ' ' + (currentLang === 'zh' ? '笔' : 'зап.') + '</td>';
             tbody.appendChild(sumTr);
-            sectionDiv.appendChild(table);
-            outboundContainer.appendChild(sectionDiv);
+            bodyDiv.appendChild(table);
+            // 点击标题切换展开/折叠（直接切换 DOM，不重渲染，保留页面滚动位置）
+            headerDiv.addEventListener('click', function() {
+                var _now = !_expandedDepts[dept];
+                _expandedDepts[dept] = _now;
+                bodyDiv.style.display = _now ? 'block' : 'none';
+                _arrowSpan.textContent = (_now ? '▼ ' : '▶ ') + _hdrLabel;
+            });
+            outboundContainer.appendChild(headerDiv);
+            outboundContainer.appendChild(bodyDiv);
             _grandTotal += _deptQty;
             _grandCount += deptGroups[dept].length;
         });
@@ -5546,6 +5573,17 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         var _sb = document.getElementById('btn-outbound-search'); if (_sb) _sb.addEventListener('click', searchOutboundByCode);
         var _cb = document.getElementById('btn-outbound-search-clear'); if (_cb) _cb.addEventListener('click', clearOutboundSearch);
+        // v3.12.42：门店折叠——展开全部 / 收起全部
+        var _ea = document.getElementById('btn-outbound-expand-all');
+        if (_ea) _ea.addEventListener('click', function() {
+            _knownDepts.forEach(function(d) { _expandedDepts[d] = true; });
+            renderHistoryTables();
+        });
+        var _ca = document.getElementById('btn-outbound-collapse-all');
+        if (_ca) _ca.addEventListener('click', function() {
+            _knownDepts.forEach(function(d) { _expandedDepts[d] = false; });
+            renderHistoryTables();
+        });
     })();
 
     document.getElementById('outbound-department-custom').addEventListener('input', function(e) {
@@ -7422,8 +7460,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.41';
-var APP_CACHE = 'wms-cache-v20260910m';
+var APP_VERSION = '3.12.42';
+var APP_CACHE = 'wms-cache-v20260910n';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
