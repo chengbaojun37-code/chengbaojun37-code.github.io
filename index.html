@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.42</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.43</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -914,6 +914,7 @@
             <label for="period-picker-month" style="font-size:14px;font-weight:600;">选择月份 / Месяц:</label>
             <input type="month" id="period-picker-month">
             <span id="period-picker-month-hint" style="color:#7f8c8d;font-size:13px;"></span>
+            <button type="button" id="btn-print-month" class="btn" style="margin-left:auto;background:#fff;color:#333;border:1px solid #4a90d9;">🖨 <span id="btn-print-month-text">打印报表 / Печать</span></button>
         </div>
         <div class="summary-table-wrap" id="month-outbound-container">
             <div class="no-data" id="month-outbound-empty" style="display:none;text-align:center;padding:40px;color:#888;">暂无数据</div>
@@ -940,6 +941,7 @@
             <label for="period-picker-year" style="font-size:14px;font-weight:600;">选择月份 / Месяц:</label>
             <input type="month" id="period-picker-year">
             <span id="period-picker-year-hint" style="color:#7f8c8d;font-size:13px;"></span>
+            <button type="button" id="btn-print-year" class="btn" style="margin-left:auto;background:#fff;color:#333;border:1px solid #4a90d9;">🖨 <span id="btn-print-year-text">打印报表 / Печать</span></button>
         </div>
         <div class="summary-table-wrap" id="year-outbound-container">
             <div class="no-data" id="year-outbound-empty" style="display:none;text-align:center;padding:40px;color:#888;">暂无数据</div>
@@ -2834,6 +2836,138 @@ function renderPeriodOutbound() {
     renderPeriod('year-outbound', inYear, 'year');
 }
 
+// v3.12.43：月出库 / 年出库「生成可打印表格」——按门店（领用部门）分组，调用浏览器打印（可另存为 PDF）
+function printOutboundReport(periodType) {
+    try {
+        var t = translations[currentLang];
+        var thisYear = _periodYear, thisMonth = _periodMonth;
+        var quarterStartMonth = Math.floor((thisMonth - 1) / 3) * 3 + 1;
+        function inMonth(rec) { var d = _recDate(rec); if (!d) return false; return d.getFullYear() === thisYear && (d.getMonth() + 1) === thisMonth; }
+        function inYear(rec) { var d = _recDate(rec); if (!d) return false; return d.getFullYear() === thisYear; }
+        var filterFn = periodType === 'month' ? inMonth : inYear;
+
+        var specMap = {}, unitMap2 = {};
+        for (var i = 0; i < inventory.length; i++) {
+            specMap[inventory[i].code] = inventory[i].spec || '-';
+            unitMap2[inventory[i].code] = inventory[i].unit || '-';
+        }
+        function getNote(rec) {
+            for (var i = operationLogs.length - 1; i >= 0; i--) {
+                var log = operationLogs[i];
+                if (log.code === rec.code && log.type === (currentLang === 'zh' ? '出库' : 'Отгрузка') &&
+                    log.time && log.time.indexOf(rec.date.substring(0, 10)) !== -1 &&
+                    log.qtyChange === '-' + rec.quantity) {
+                    return log.note || '-';
+                }
+            }
+            return '-';
+        }
+
+        var periodLabel = periodType === 'month'
+            ? (currentLang === 'zh' ? thisYear + '年' + thisMonth + '月' : thisMonth + '/' + thisYear)
+            : (currentLang === 'zh' ? thisYear + '年' : '' + thisYear);
+
+        var filtered = outboundHistory.filter(filterFn);
+        if (filtered.length === 0) {
+            alert(currentLang === 'zh' ? '当前周期暂无出库数据，无法生成报表。' : 'Нет данных об отгрузке за этот период.');
+            return;
+        }
+
+        // 按门店（领用部门）分组
+        var deptGroups = {};
+        filtered.forEach(function (rec) {
+            var dept = normalizeDepartment(rec.department);
+            if (!dept || dept.trim() === '') dept = currentLang === 'zh' ? '未分类' : 'Без категории';
+            if (!deptGroups[dept]) deptGroups[dept] = [];
+            deptGroups[dept].push(rec);
+        });
+        var deptNames = Object.keys(deptGroups).sort();
+
+        var genTime = _dateToDisplay(new Date());
+        var isZh = currentLang === 'zh';
+        var html = '';
+        html += '<div class="report-head">';
+        html += '<h1>' + (isZh ? '出库报表' : 'Отчет по отгрузке') + '</h1>';
+        html += '<div class="report-sub">' + (isZh ? '统计周期' : 'Период') + '：' + periodLabel + '</div>';
+        html += '<div class="report-sub">' + (isZh ? '生成时间' : 'Время создания') + '：' + genTime + '</div>';
+        html += '</div>';
+
+        var grandTotal = 0, grandCount = 0, grandDept = 0;
+        deptNames.forEach(function (dept) {
+            var records = deptGroups[dept];
+            var aggMap = {};
+            records.forEach(function (rec) {
+                var key = rec.code;
+                if (!aggMap[key]) {
+                    aggMap[key] = { code: rec.code, name: rec.name, spec: specMap[rec.code] || '-', unit: unitMap2[rec.code] || '-', qty: 0, operators: {}, notes: [] };
+                }
+                aggMap[key].qty += rec.quantity;
+                aggMap[key].operators[rec.operator] = true;
+                var note = getNote(rec);
+                if (note !== '-' && aggMap[key].notes.indexOf(note) === -1) aggMap[key].notes.push(note);
+            });
+            var codes = Object.keys(aggMap).sort();
+            var deptQty = 0;
+            var headingText = dept;
+            if (dept === '未分类' || dept === 'Без категории') {
+                headingText = isZh ? '未分类 / Без категории' : 'Без категории / 未分类';
+            }
+            html += '<div class="store-block">';
+            html += '<h2>' + headingText + '</h2>';
+            html += '<table class="print-table"><thead><tr>'
+                + '<th>' + (isZh ? '物料编号' : 'Код') + '</th>'
+                + '<th>' + (isZh ? '物料名称' : 'Материал') + '</th>'
+                + '<th>' + (isZh ? '规格' : 'Спец.') + '</th>'
+                + '<th>' + (isZh ? '单位' : 'Ед.') + '</th>'
+                + '<th>' + (isZh ? '出库数量' : 'Кол-во') + '</th>'
+                + '<th>' + (isZh ? '操作人' : 'Оператор') + '</th>'
+                + '<th>' + (isZh ? '备注' : 'Прим.') + '</th>'
+                + '</tr></thead><tbody>';
+            codes.forEach(function (code) {
+                var a = aggMap[code];
+                var opList = Object.keys(a.operators).join(', ');
+                var noteStr = a.notes.length > 0 ? a.notes.join('; ') : '-';
+                html += '<tr><td>' + a.code + '</td><td>' + a.name + '</td><td>' + a.spec + '</td><td>' + a.unit + '</td><td>' + formatQty(a.qty) + '</td><td>' + opList + '</td><td>' + noteStr + '</td></tr>';
+                deptQty += a.qty;
+            });
+            html += '<tr class="dept-sum"><td colspan="4" style="text-align:right;">' + (isZh ? '门店小计' : 'Итого по магазину') + '</td><td>' + formatQty(deptQty) + '</td><td colspan="2">' + records.length + (isZh ? ' 笔' : ' зап.') + '</td></tr>';
+            html += '</tbody></table></div>';
+            grandTotal += deptQty; grandCount += records.length; grandDept++;
+        });
+        html += '<div class="report-foot">' + (isZh ? '总计' : 'Итого') + '：' + grandDept + (isZh ? ' 个门店' : ' магаз.') + ' · ' + grandCount + (isZh ? ' 笔' : ' зап.') + ' · ' + (isZh ? '合计' : 'Всего') + ' ' + formatQty(grandTotal) + '</div>';
+
+        // 注入 / 复用打印区域与打印样式
+        var pa = document.getElementById('print-area');
+        if (!pa) { pa = document.createElement('div'); pa.id = 'print-area'; document.body.appendChild(pa); }
+        pa.innerHTML = html;
+        if (!document.getElementById('wms-print-style')) {
+            var st = document.createElement('style');
+            st.id = 'wms-print-style';
+            st.textContent = ''
+                + '#print-area{display:none;}'
+                + '@media print{'
+                + '  body *{visibility:hidden;}'
+                + '  #print-area,#print-area *{visibility:visible;}'
+                + '  #print-area{display:block;position:absolute;left:0;top:0;width:100%;padding:10px;font-family:sans-serif;color:#000;background:#fff;}'
+                + '  @page{margin:12mm;}'
+                + '  .report-head h1{font-size:20px;margin:0 0 6px;}'
+                + '  .report-sub{font-size:13px;color:#333;margin:2px 0;}'
+                + '  .store-block{margin-top:18px;page-break-inside:avoid;}'
+                + '  .store-block h2{font-size:15px;margin:0 0 6px;padding:4px 8px;background:#eef3ff;border-left:4px solid #4a90d9;}'
+                + '  table.print-table{border-collapse:collapse;width:100%;font-size:12px;}'
+                + '  table.print-table th,table.print-table td{border:1px solid #333;padding:4px 6px;text-align:left;}'
+                + '  table.print-table th{background:#f0f0f0;font-weight:600;}'
+                + '  tr.dept-sum{font-weight:700;background:#fafbff;}'
+                + '  .report-foot{margin-top:14px;font-size:13px;font-weight:700;}'
+                + '}';
+            document.head.appendChild(st);
+        }
+        window.print();
+    } catch (e) {
+        _showFatalBanner('生成打印报表失败: ' + (e && e.message));
+    }
+}
+
 function showAlert(type, message, page) {
     const alertDiv = document.getElementById(page+'-alert');
     if (!alertDiv) return;
@@ -4714,6 +4848,9 @@ document.addEventListener('DOMContentLoaded', function() {
             if (el) el.addEventListener('change', _onPeriodPick);
         });
         _syncPeriodPickers();
+        // v3.12.43：月出库 / 年出库 打印报表按钮
+        var _pm = document.getElementById('btn-print-month'); if (_pm) _pm.addEventListener('click', function () { printOutboundReport('month'); });
+        var _py = document.getElementById('btn-print-year'); if (_py) _py.addEventListener('click', function () { printOutboundReport('year'); });
     } catch (_eP) { console.warn('周期选择器初始化失败', _eP); }
     // v3.12.33：先尝试用 EMBEDDED_FALLBACK 覆盖被污染的 localStorage
     // 场景：用户浏览器 localStorage 里有一份"空 inventory" + 高 dataVersion → loadAllData 返回 false → 系统显示 0
@@ -7460,8 +7597,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.42';
-var APP_CACHE = 'wms-cache-v20260910n';
+var APP_VERSION = '3.12.43';
+var APP_CACHE = 'wms-cache-v20260910o';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
