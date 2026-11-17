@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20261117q'; // v3.12.45：顶层补全局 escapeHTML 定义，修复月/季/年出库按编号查询报 "escapeHTML is not defined" 没反应的问题（与 formatQty 同类作用域坑）
+const CACHE = 'wms-cache-v20261117r'; // v3.12.46：按编号查询的出库明细表底部新增「合计行」——在出库数量列下方显示求和总数与笔数
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './zxing-browser.min.js'];
 
 self.addEventListener('install', function(e) {
