@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20260910o'; // v3.12.43：月出库/年出库新增“打印报表”按钮——按门店(领用部门)分组生成可打印表格(调用浏览器打印，可另存为PDF)
+const CACHE = 'wms-cache-v20261117p'; // v3.12.44：月/季/年出库页新增按物料编号查询「全部历史出库明细」——逐条列出该编号所有出库记录(时间/门店/数量/操作人)+合计
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './zxing-browser.min.js'];
 
 self.addEventListener('install', function(e) {
