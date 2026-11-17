@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.45</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.46</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -2726,6 +2726,13 @@ function _renderCodeDetail(container, records, code, specMap, unitMap2) {
             '<td>' + escapeHTML(r.operator || '') + '</td>';
         tbody.appendChild(tr);
     });
+    // v3.12.46：表格底部合计行——在「出库数量」列下方显示该编号全部出库的数量求和
+    var sumTr = document.createElement('tr');
+    sumTr.style.cssText = 'background:#fafbff;font-weight:600;color:#2c5f8a;border-top:2px solid #4a90d9;';
+    sumTr.innerHTML = '<td colspan="5" style="text-align:right;">' + (isZh ? '合计 / 共 ' : 'Итого / ') + records.length + (isZh ? ' 笔' : ' зап.') + '：</td>' +
+        '<td>' + formatQty(totalQty) + '</td>' +
+        '<td></td>';
+    tbody.appendChild(sumTr);
     wrap.appendChild(table);
     container.appendChild(wrap);
 }
@@ -7726,8 +7733,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.45';
-var APP_CACHE = 'wms-cache-v20261117q';
+var APP_VERSION = '3.12.46';
+var APP_CACHE = 'wms-cache-v20261117r';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
