@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.44</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.45</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -1125,6 +1125,17 @@ function formatQty(n) {
     if (!isFinite(v)) v = 0;
     var r = Math.round(v * 10) / 10;
     return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+// v3.12.45：全局 HTML 转义函数（修复根因，与 formatQty 同类坑）。
+// escapeHTML 此前定义在 DOMContentLoaded 回调（局部作用域）内，而顶层的
+// _renderCodeDetail / renderHistoryTables 调用它时抛 "escapeHTML is not defined"，
+// 导致年/月/季度出库按编号查询"没反应"（实际是渲染时抛错被错误边界拦截）。
+// 放到全局作用域声明提升，任何地方都能调用。局部同名定义保留无妨（实现一致）。
+function escapeHTML(str) {
+    var div = document.createElement('div');
+    div.textContent = (str == null) ? '' : String(str);
+    return div.innerHTML;
 }
 
 // ========== v3.12.38：全局错误边界（防崩溃第一道防线） ==========
@@ -7715,8 +7726,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.44';
-var APP_CACHE = 'wms-cache-v20261117p';
+var APP_VERSION = '3.12.45';
+var APP_CACHE = 'wms-cache-v20261117q';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
