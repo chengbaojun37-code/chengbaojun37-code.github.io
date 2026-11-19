@@ -4,7 +4,7 @@
  *  - 同源静态资源：网络优先，成功后更新缓存（避免旧缓存一直生效）
  *  - 跨域请求(Gist API)：一律放行网络，不做缓存（数据实时同步）
  */
-const CACHE = 'wms-cache-v20261117r'; // v3.12.46：按编号查询的出库明细表底部新增「合计行」——在出库数量列下方显示求和总数与笔数
+const CACHE = 'wms-cache-v20261119s'; // v3.12.47：月/季/年出库按编号查询改为只显示所选周期的数据（不再显示全部历史），查询提示/空结果提示带周期标签
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './zxing-browser.min.js'];
 
 self.addEventListener('install', function(e) {
