@@ -560,7 +560,7 @@
 <body>
 <div class="container">
 <div class="header">
-    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.46</span>
+    <h1 id="header-title">仓库出入库管理系统</h1><span id="app-version" style="font-size:13px;opacity:0.9;margin-left:10px;font-weight:400;">v3.12.47</span>
     <div class="header-right">
         <div class="user-settings">
             <input type="text" id="user-name-input" placeholder="输入姓名...">
@@ -2816,23 +2816,25 @@ function renderPeriodOutbound() {
             }
         }
 
-        // v3.12.44：按物料编号查询「全部历史出库明细」——不受月份选择器限制，逐条列出该编号所有出库记录
+        // v3.12.47：按物料编号查询出库明细——v3.12.44 起曾按「全部历史」不限周期，
+        // 现按用户要求改为「只显示所选月/季/年」：编号匹配后再套用当前页的周期过滤 filterFn。
         var _qRaw = (periodCodeSearch[periodType] || '').trim();
         if (_qRaw !== '') {
             var _q = _qRaw.toUpperCase();
+            var _periodLabel = getPeriodLabel(periodType);
             var _matched = outboundHistory.filter(function(r) {
-                return String(r.code || '').trim().toUpperCase() === _q;
+                return String(r.code || '').trim().toUpperCase() === _q && filterFn(r);
             });
             // 按操作时间倒序（最新在前），兼容无 dateISO 的旧记录
             _matched.sort(function(a, b) {
                 var da = _recDate(a), db = _recDate(b);
                 return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
             });
-            if (infoEl) infoEl.textContent = (currentLang === 'zh' ? '查询：' : 'Поиск: ') + _qRaw;
+            if (infoEl) infoEl.textContent = (currentLang === 'zh' ? '查询：' : 'Поиск: ') + _qRaw + ' · ' + _periodLabel;
             if (_matched.length === 0) {
                 emptyDiv.textContent = currentLang === 'zh'
-                    ? '未找到物料编号「' + _qRaw + '」的出库记录'
-                    : 'Нет записей отгрузки для кода «' + _qRaw + '»';
+                    ? '在' + _periodLabel + '未找到物料编号「' + _qRaw + '」的出库记录（该编号的记录可能在其它月份/季度/年份）'
+                    : 'Нет записей отгрузки для кода «' + _qRaw + '» за ' + _periodLabel;
                 emptyDiv.style.display = 'block';
                 return;
             }
@@ -7733,8 +7735,8 @@ document.addEventListener('focusout', function(e) {
 // 发版时只改了 sw.js 忘了改这里的常量 → 页面每次加载都判定"有新版本" → 无限自动刷新 →
 // loadAllData / loadFromGist 的请求被反复打断（表现为：物料恒为 0、点什么都没反应、刷新也没用）。
 // 现已改为按【版本号大小】比较，且加了熔断与"数据未就绪不刷新"双重保护，物理上不可能再出现刷新循环。
-var APP_VERSION = '3.12.46';
-var APP_CACHE = 'wms-cache-v20261117r';
+var APP_VERSION = '3.12.47';
+var APP_CACHE = 'wms-cache-v20261119s';
 
 // —— 自动刷新熔断器：同一会话最多自动刷新 2 次，超出只提示、绝不再刷新 ——
 function _wmsReloadCount() {
